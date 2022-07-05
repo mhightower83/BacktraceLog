@@ -1,0 +1,39 @@
+#########################################
+# Syntax Coloring Map
+#########################################
+
+#######################################################
+# The Arduino IDE requires the use of a tab separator
+# between the name and identifier. Without this tab the
+# keyword is not highlighted.
+#
+# Reference: https://github.com/arduino/Arduino/wiki/Arduino-IDE-1.5:-Library-specification#keywords
+#######################################################
+
+#######################################
+# Datatypes & Classes (KEYWORD1)
+#######################################
+
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+backtraceClear	KEYWORD2
+backtraceReport	KEYWORD2
+backtrace_clear	KEYWORD2
+backtrace_report	KEYWORD2
+isBacktrace	KEYWORD2
+xt_pc_is_valid	KEYWORD2
+xt_retaddr_callee	KEYWORD2
+xt_return_address	KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+ESP_DEBUG_BACKTRACELOG_MAX	LITERAL1
+ESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER	LITERAL1
+ESP_DEBUG_BACKTRACELOG_SHOW	LITERAL1
+ESP_DEBUG_BACKTRACELOG_USE_NON32XFER_EXCEPTION	LITERAL1
+
