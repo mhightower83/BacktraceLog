@@ -40,13 +40,16 @@ Some useful defines to include in your [`<sketch name>.ino.globals.h`](https://a
 # Build define options
 These are build options you can add to your `<sketche name>.ino.globals.h` file
 ## `-DESP_DEBUG_BACKTRACELOG_MAX=32`
-Enables backtrace logging by defining the maximum number of entries/levels/depth.
+Enables backtrace logging by defining the maximum number of entries/levels/depth. Minimum value is 4. Values above 0 and less than 4 are processed as 4.
 
 ## `-DESP_DEBUG_BACKTRACELOG_SHOW=1`
 Show backtrace at the time of postmortem report.
 
 ## `-DESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER=1`
 The backtrace can be stored in DRAM or IRAM. The default is DRAM. To select IRAM add this option.
+
+## `-DESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER=64`
+Use with a DRAM or an IRAM log buffer. A backup copy of the log buffer is made to RTC memory at the specified word offset. The user's RTC memory space starts at word 64. Specify a value of 64 or higher but lower than 192. If ESP_DEBUG_BACKTRACELOG_MAX is too large, the RTC buffer will be reduce to fit the available space. The RTC memory copy will persist across EXT_RST, sleep, and soft restarts, etc. For this option, EXT_RST and sleep are the added benefit. However, RTC memory will _not_ persist after pulsing the Power Enable pin or a power cycle.
 
 ## `-DESP_DEBUG_BACKTRACELOG_USE_NON32XFER_EXCEPTION=1`
 The downside of using the non32xfer exception handler is the added stack loading to handle the exception. Thus, requiring an additional 272 bytes of stack space. Not using the exception handler only increases BacktrackLog code size by 104 bytes of FLASH code space. _I am not sure this option should be available._ It defaults to off.
@@ -58,18 +61,18 @@ Additional development debug prints. I may purged these at a later date.
 
 `-DESP_DEBUG_BACKTRACELOG_CPP=1` - Enable debug prints from `BacktraceLog.cpp`
 
-# Build optimizations options
-More build options you can add to your <sketche name>.ino.globals.h file.
+# GCC build optimizations
+Helpful build options, you can add to your `<sketche name>.ino.globals.h` file. Note, these options may create new problems by increased code, stack size, and execution time.
 
 ## `-fno-optimize-sibling-calls`
-This option makes backtrace more productive. For "sibling and tail recursive calls", it improves the traceable stack content. Preserves stack frames created at each level as you call down to the next level. Thus leaving a complete trail to follow back up after a crash.
+This option makes backtrace more productive. By removing "sibling and tail recursive calls" optimization, it improves the traceable stack content. Preserves stack frames created at each level as you call down to the next. Thus leaving a complete trail to follow back up after a crash.
 
 This option is also beneficial when using the traditional method of copy/paste from the postmortem stack dump to the _ESP Exception Decoder_.
 
 This option may affect speed and stack growth; however, does not appear to have a significant effect on code size.
 
 ## `-fno-omit-frame-pointer`
-Adds a pointer at the end of the stack frame highest (last) address -8 just before the return address at -12. Not necessary for this library. It may help to get your bearings when looking at a postmortem stack dump. Postmortem will annotate the stack dump line where it occurs with a `<` mark.
+Adds a pointer at the end of the stack frame highest (last) address -8 just before the return address at -12. Not necessary for this library. It may help to get your bearings when looking at a postmortem stack dump. Postmortem will annotate the stack dump line where it occurs with a `<` mark. If you are looking for specific data in the stack, you may find this option useful along with ESP_DEBUG_BACKTRACELOG_SHOW. It will help visually group each functions stack and ESP_DEBUG_BACKTRACELOG_SHOW will have references to those stack locations as well.
 
 # Decoding backtrace log
 ## addr2line
@@ -84,12 +87,13 @@ Surprisingly the _ESP Exception Decoder_ will also work. Copy paste the "Backtra
 Espressif's [`idf_monitor.py`](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/tools/idf-monitor.html?highlight=idf_monitor) will also work.
 
 # References:
+Maybe worth further investigation:
+* [gcc Debugging Options](https://gcc.gnu.org/onlinedocs/gcc/Debugging-Options.html)
+
 Using `-fno-optimize-sibling-calls`, turns off "sibling and tail recursive calls" optimization.
 * Terminology link: https://stackoverflow.com/a/54939907
 * A deeper dive: https://www.drdobbs.com/tackling-c-tail-calls/184401756
 
-
-# Credits:
-Original files before adaptation:
+Credits: Original files before adaptation:
 * Espressif Systems (Shanghai) PTE LTD - [backtrace.c](https://github.com/espressif/ESP8266_RTOS_SDK/blob/master/components/esp8266/source/backtrace.c)
 * Espressif Systems (Shanghai) PTE LTD - [backtrace.h](https://github.com/espressif/ESP8266_RTOS_SDK/blob/master/components/esp8266/include/esp8266/backtrace.h)

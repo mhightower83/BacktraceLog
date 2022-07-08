@@ -1,14 +1,57 @@
+/*
+  A simple demo for BactraceLog - Example shows a few ways a sketch could crash.
+
+  For this example using the compile option "-fno-optimize-sibling-calls",
+  will greatly improve the results from the "ESP Exception Decoder" and other
+  decoder utilities.
+
+  "-fno-optimize-sibling-calls"
+  Turns off "sibling and tail recursive calls" optimization.
+  Terminology link: https://stackoverflow.com/a/54939907
+  A deeper dive: https://www.drdobbs.com/tackling-c-tail-calls/184401756
+*/
+
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266mDNS.h>
 #include <Esp.h>
 #include <BacktraceLog.h>
+
+#ifdef USE_WIFI
+#ifndef STASSID
+#pragma message("Using default SSID: your-ssid, this is probably not what you want.")
+#define STASSID "your-ssid"
+#define STAPSK  "your-password"
+#endif
+
+const char* ssid = STASSID;
+const char* password = STAPSK;
+#endif
 
 void setup(void) {
   Serial.begin(115200);
   delay(200);    // This delay helps when using the 'Modified Serial monitor' otherwise it is not needed.
   Serial.printf_P(PSTR("\r\n\r\nSimple IRAM Crash Log Backtrace Demo ...\r\n\r\n"));
 
-  backtraceReport(Serial);
+  backtraceLogReport(Serial);
+  Serial.println();
+
+#ifdef USE_WIFI
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
+    Serial.println("WiFi Connection Failed! Rebooting in 5 secs. ...");
+    delay(5000);
+    ESP.restart();
+  }
+  Serial.println("WiFi connection complete");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+  Serial.println();
+  Serial.println();
+
+  telnetAgentSetup();
+#endif
 }
 
 void loop(void) {
@@ -16,7 +59,14 @@ void loop(void) {
     int hotKey = Serial.read();
     processKey(Serial, hotKey);
   }
+
+  handleTelnetAgent();
 }
+
+void cmdLoop(Print& out, int hotKey) {
+  processKey(out, hotKey);
+}
+
 
 /////////////////////////////////////////////////////////////
 // Crash test
@@ -42,19 +92,39 @@ int __attribute__((noinline)) level1(int a, int b) {
 
 void processKey(Print& out, int hotKey) {
   switch (hotKey) {
+    case 't':
+      if (backtraceLogAvailable()) {
+        out.printf_P(PSTR("Backtrace log available.\r\n"));
+      } else {
+        out.printf_P(PSTR("No backtrace log available.\r\n"));
+      }
+      break;
     case 'c':
       out.printf_P(PSTR("Clear backtrace log\r\n"));
-      backtraceClear(out);
+      backtraceLogClear(out);
       break;
     case 'l':
-      out.printf_P(PSTR("Print backtrace log report\r\n"));
-      backtraceReport(out);
+      out.printf_P(PSTR("Print backtrace log report\r\n\r\n"));
+      backtraceLogReport(out);
+      break;
+    case 'L': {
+        out.printf_P(PSTR("Print custom backtrace log report\r\n"));
+        size_t sz = backtraceLogAvailable();
+        if (sz) {
+          uint32_t pc[sz];
+          int count = backtraceLogRead(pc, sz);
+          if (count > 0) {
+            for (int i = 0; i < count; i++) {
+              out.printf_P(PSTR("  0x%08x\r\n"), pc[i]);
+            }
+          }
+        } else {
+          out.printf_P(PSTR("  <empty>\r\n"));
+        }
+      }
+      out.printf_P(PSTR("\r\n"));
       break;
     case 'r':
-      out.printf_P(PSTR("Reset, ESP.reset(); ...\r\n"));
-      ESP.reset();
-      break;
-    case 't':
       out.printf_P(PSTR("Restart, ESP.restart(); ...\r\n"));
       ESP.restart();
       break;
@@ -90,10 +160,11 @@ void processKey(Print& out, int hotKey) {
     case '?':
       out.println();
       out.println(F("Press a key + <enter>"));
-      out.println(F("  c    - Clear backtrace log"));
+      out.println(F("  t    - Test for backtrace log"));
       out.println(F("  l    - Print backtrace log report"));
-      out.println(F("  r    - Reset, ESP.reset();"));
-      out.println(F("  t    - Restart, ESP.restart();"));
+      out.println(F("  L    - Print custom backtrace log report"));
+      out.println(F("  c    - Clear backtrace log"));
+      out.println(F("  r    - Restart, ESP.restart();"));
       out.println(F("  ?    - Print Help"));
       out.println();
       out.println(F("Crash with:"));

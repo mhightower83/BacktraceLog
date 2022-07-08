@@ -1,7 +1,13 @@
 /*
-  Using the compile option "-fno-optimize-sibling-calls", for some sketches,
-  may greatly improve the results from the "ESP Exception Decoder"
+  A simple crash once on divide by zero.
+  Shows the results of stored bactrace log at reboot.
+  Then, wait for a reset.
 
+  For this example using the compile option "-fno-optimize-sibling-calls",
+  will greatly improve the results from the "ESP Exception Decoder" and other
+  decoder utilities.
+
+  "-fno-optimize-sibling-calls"
   Turns off "sibling and tail recursive calls" optimization.
   Terminology link: https://stackoverflow.com/a/54939907
   A deeper dive: https://www.drdobbs.com/tackling-c-tail-calls/184401756
@@ -23,9 +29,9 @@ void setup() {
 
   Serial.printf("\r\n\r\n\r\nDemo: Divide by 0 Exception with sibling calls\r\n\r\n");
 
-  if (isBacktrace()) {
-    backtraceReport(Serial);
-    backtraceClear();
+  if (backtraceLogAvailable()) {
+    backtraceLogReport(Serial);
+    backtraceLogClear();
   }
 
   if (!is_ram_persistent()) {
