@@ -155,6 +155,7 @@ void backtraceLogReport(Print& out) {
         out.printf_P(PSTR("  Insufficient IRAM for log buffer.\r\n"));
         return;
     }
+
     out.printf_P(PSTR("  Boot Count: %u\r\n"), pBT->log.bootCounter);
     #if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER
     #if ESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER
@@ -167,6 +168,7 @@ void backtraceLogReport(Print& out) {
     #else
     out.printf_P(PSTR("  Config: DRAM log buffer: %u bytes, MAX backtrace: %u levels\r\n"), sizeof(union BacktraceLogUnion), pBT->log.max);
     #endif
+
     if (pBT->log.crashCount) {
         out.printf_P(PSTR("  Crash count: %u\r\n"), pBT->log.crashCount);
     }
@@ -245,31 +247,47 @@ void backtrace_report(int (*ets_printf_P)(const char *fmt, ...)) {
         ets_printf_P = umm_info_safe_printf_P;
     }
 
-    ets_printf_P(PSTR("\n\nBacktrace Crash Report\n"));
+    ets_printf_P(PSTR("Backtrace Crash Report\r\n"));
 
     if (NULL == pBT) {
-        ets_printf_P(PSTR("  Insufficient IRAM for log buffer.\n"));
+        ets_printf_P(PSTR("  Insufficient IRAM for log buffer.\r\n"));
         return;
     }
 
+    ets_printf_P(PSTR("  Boot Count: %u\r\n"), pBT->log.bootCounter);
+    #if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER
+    #if ESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER
+    ets_printf_P(PSTR("  Config: IRAM log buffer w/RTC(%u): %u bytes, MAX backtrace: %u levels\r\n"), rtc_status.size, sizeof(union BacktraceLogUnion), pBT->log.max);
+    #else
+    ets_printf_P(PSTR("  Config: DRAM log buffer w/RTC(%u): %u bytes, MAX backtrace: %u levels\r\n"), rtc_status.size, sizeof(union BacktraceLogUnion), pBT->log.max);
+    #endif
+    #elif ESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER
+    ets_printf_P(PSTR("  Config: IRAM log buffer: %u bytes, MAX backtrace: %u levels\r\n"), sizeof(union BacktraceLogUnion), pBT->log.max);
+    #else
+    ets_printf_P(PSTR("  Config: DRAM log buffer: %u bytes, MAX backtrace: %u levels\r\n"), sizeof(union BacktraceLogUnion), pBT->log.max);
+    #endif
+
     if (pBT->log.crashCount) {
-        ets_printf_P(PSTR("  Boot Count: %u\n"), pBT->log.bootCounter);
-        ets_printf_P(PSTR("  IRAM log buffer: %u bytes, MAX backtrace: %u levels\n"), sizeof(union BacktraceLogUnion), ESP_DEBUG_BACKTRACELOG_MAX);
-        ets_printf_P(PSTR("  Reset Reason %u\n"), pBT->log.rst_info.reason);
+        ets_printf_P(PSTR("  Crash count: %u\r\n"), pBT->log.crashCount);
+    }
+    if (pBT->log.count) {
+        ets_printf_P(PSTR("  Reset Reason: %u\r\n"), pBT->log.rst_info.reason);
         if (pBT->log.rst_info.reason < 100) {
-            ets_printf_P(PSTR("  Exception (%d):\n  epc1=0x%08x epc2=0x%08x epc3=0x%08x excvaddr=0x%08x depc=0x%08x\n"),
+            ets_printf_P(PSTR("  Exception (%d):\r\n  epc1=0x%08x epc2=0x%08x epc3=0x%08x excvaddr=0x%08x depc=0x%08x\r\n"),
                 pBT->log.rst_info.exccause, pBT->log.rst_info.epc1,
                 pBT->log.rst_info.epc2, pBT->log.rst_info.epc3,
                 pBT->log.rst_info.excvaddr, pBT->log.rst_info.depc);
         }
-        ets_printf_P(PSTR(     "  Crash count: %u\n "), pBT->log.crashCount);
+        ets_printf("  Backtrace:");
         for (size_t i = 0; i < pBT->log.count; i++) {
             ets_printf_P(PSTR(" %p"), pBT->log.pc[i]);
         }
-        ets_printf_P(PSTR("\n"));
+        ets_printf_P(PSTR("\r\n"));
         if (0x4000050cu == (uint32_t)pBT->log.pc[pBT->log.count - 1]) {
-            ets_printf_P(PSTR("  Backtrace Context: level 1 Interrupt Handler\n"));
+            ets_printf_P(PSTR("  Backtrace Context: level 1 Interrupt Handler\r\n"));
         }
+    } else {
+        ets_printf_P(PSTR("  Backtrace empty\r\n"));
     }
 }
 

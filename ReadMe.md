@@ -1,7 +1,9 @@
 # Backtrace Log
-This library generates and stores a backtrace of a crash in an IRAM or DRAM log buffer. The library gains control at crash time through a postmortem callback function, `custom_crash_callback`. This library builds on Espressif's `backtrace.c`. It has been readapted from Open source RTOS to the Arduino ESP8266 environment using Espressif's NONOS SDK.
+This library generates and stores a backtrace of a crash in an IRAM or DRAM log buffer. By crunching the stack trace and code to generate a list of function calls that were at play when the crash occurred, we can condense the amount of data that needs to be stored for later analysis. Reducing the data to a small list allows storage in slivers of unused IRAM or noinit DRAM. Which can additionally be backed up to User RTC memory,
 
-The method used by `backtrace.c` is to scan code backward disassembling for instructions that could be used to set up the stack. While this method by its nature is problematic, several improvements have been made to increase the reliability of the results. While it works for my test cases, there can be **no assurance it will work in all cases**.
+The library gains control at crash time through a postmortem callback function, `custom_crash_callback`. This library builds on Espressif's `backtrace.c`. It has been readapted from Open source RTOS to the Arduino ESP8266 environment using Espressif's NONOS SDK.
+
+The method used by `backtrace.c` is to scan code backward disassembling for instructions that could be used to set up the stack frame for the current function. While this method by its nature is problematic, several improvements have been made to increase the reliability of the results. While it works for my test cases, there can be **no assurance it will work in all cases**.
 
 When using an IRAM log buffer, it is placed after `_text_end` at the end of the IRAM code. Enough space is left between the log buffer and `_text_end` to ensure the log buffer is not overwritten by the boot loader during reboots. When using a DRAM log buffer, it is placed in the noinit section.
 
@@ -94,6 +96,9 @@ Using `-fno-optimize-sibling-calls`, turns off "sibling and tail recursive calls
 * Terminology link: https://stackoverflow.com/a/54939907
 * A deeper dive: https://www.drdobbs.com/tackling-c-tail-calls/184401756
 
+EspSaveCrash was the first example I found using the postmortem callback `custom_crash_callback`. I have used it for many years. If you need the entire stack trace saved, you should take a look at it.
+* EspSaveCrash: https://github.com/krzychb/EspSaveCrash
+
 Credits: Original files before adaptation:
-* Espressif Systems (Shanghai) PTE LTD - [backtrace.c](https://github.com/espressif/ESP8266_RTOS_SDK/blob/master/components/esp8266/source/backtrace.c)
-* Espressif Systems (Shanghai) PTE LTD - [backtrace.h](https://github.com/espressif/ESP8266_RTOS_SDK/blob/master/components/esp8266/include/esp8266/backtrace.h)
+* Espressif Systems (Shanghai) PTE LTD, from ESP8266 RTOS Software Development Kit - [backtrace.c](https://github.com/espressif/ESP8266_RTOS_SDK/blob/master/components/esp8266/source/backtrace.c)
+* Espressif Systems (Shanghai) PTE LTD, from ESP8266 RTOS Software Development Kit - [backtrace.h](https://github.com/espressif/ESP8266_RTOS_SDK/blob/master/components/esp8266/include/esp8266/backtrace.h)

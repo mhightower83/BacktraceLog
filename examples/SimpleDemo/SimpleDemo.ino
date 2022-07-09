@@ -70,23 +70,42 @@ void cmdLoop(Print& out, int hotKey) {
 
 /////////////////////////////////////////////////////////////
 // Crash test
-int __attribute__((noinline)) divideA_B(int a, int b) {
+/*
+Obsrvations on optimmization where -fno-optimize-sibling-calls did not help
+If defined with "static", noinline was ignored and and nexted calls were
+reduced to a hard breakpoint instruction. HWDT results in absence of gdb running.
+
+These additional compiler options had no affect on the outcome and the results
+were worse. And "-g" made the __attribute__((noinline)) option less useful.
+  -fno-inline-functions
+  -fno-inline-small-functions
+  -g
+
+My solutuion for now:
+*/
+#if 1 // defined(ESP_DEBUG_PORT) || defined(ESP_DEBUG_STATIC_NOINLINE)
+#define STATIC __attribute__((noinline))
+#else
+#define STATIC static
+#endif
+
+STATIC int divideA_B(int a, int b) {
   return (a / b);
 }
 
-int __attribute__((noinline)) level4(int a, int b) {
+STATIC int level4(int a, int b) {
   return divideA_B(a, b);
 }
 
-int __attribute__((noinline)) level3(int a, int b) {
+STATIC int level3(int a, int b) {
   return level4(a, b);
 }
 
-int __attribute__((noinline)) level2(int a, int b) {
+STATIC int level2(int a, int b) {
   return level3(a, b);
 }
 
-int __attribute__((noinline)) level1(int a, int b) {
+STATIC int level1(int a, int b) {
   return level2(a, b);
 }
 
