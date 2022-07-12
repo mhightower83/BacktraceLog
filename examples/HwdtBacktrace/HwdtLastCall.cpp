@@ -18,13 +18,13 @@
   For details about the GCC command line option "-finstrument-functions" see
   https://gcc.gnu.org/onlinedocs/gcc/Instrumentation-Options.html
 
-  This module tracks what our sketch was last doing before a crash with Hardware
-  WDT. To do this we define a basic asm functions that is called for at each
-  function entry and exit.
+  This module tracks the last (almost) function call made before a Hardware
+  WDT crash. To do this we define a basic asm functions that is called at each
+  function entry.
 
-  The overhead is very high with this option. So we do not want it applied
-  everywhere. At the same time if we limit the coverage too much, we may miss
-  the event that caused the HWDT.
+  The overhead is high with the "instrument-functions" option. So we do not
+  want it applied everywhere. At the same time if we limit the coverage too
+  much, we may miss the event that caused the HWDT.
 
   Add the following build options to your sketch `<sketch name>.ino.globals.h` file:
     -finstrument-functions
@@ -53,13 +53,6 @@ extern "C" {
     void *sp;
   };
 
-  /*
-    If you need to debug a WDT that occurs before user_init() is called to
-    perform  "C"/"C++" runtime initialization, then add
-    "__attribute__((section(".noinit")))" to hwdt_last_call and do ets_memset
-    from hwdt_pre_sdk_init as shown below. And, build with "Debug Level: HWDT".
-    Otherwise, the data captured in hwdt_last_call starts after user_init().
-  */
   struct LastPCPS hwdt_last_call __attribute__((section(".noinit")));
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -78,8 +71,9 @@ extern "C" {
   void hwdt_pre_sdk_init(void) __attribute__((no_instrument_function));
 
   /*
-    hwdt_pre_sdk_init() us called from HWDT Stack Dump just before starting SDK
-    Serial speed has been initialized for us.
+    hwdt_pre_sdk_init() is called from HWDT Stack Dump before starting the SDK
+    and before the Heap is available(); however, a 16K ICACHE is online.
+    The UART is enabled and the Serial speed has been preset.
 
     Note, we rely on the previous values of the hwdt_last_call structure,
     still set from before the crash. At the time we are called here, the SDK has
@@ -87,6 +81,7 @@ extern "C" {
     until later when the SDK calls user_init().
   */
   void hwdt_pre_sdk_init(void) {
+    // Note, this reset reason was determinted by HWDT Stack Dump not the SDK
     if (REASON_WDT_RST == hwdt_info.reset_reason) {
       void *i_pc, *i_sp, *lr, *pc = hwdt_last_call.pc, *sp = hwdt_last_call.sp;
       ETS_PRINTF("\n\nHWDT Backtrace Crash Report:\n  Backtrace:");
@@ -100,12 +95,7 @@ extern "C" {
       } while(repeat);
       ETS_PRINTF("\n\n");
     }
-    /*
-      You can skip direct initialization of hwdt_last_call without causing
-      crashes. After kMaxTracks calls, all uninitialized data is overwritten. In
-      most user-based WDT crashes, you can assume that a sufficient number
-      (kMaxTracks) of calls will fill the circular buffer before a crash occurs.
-    */
+    // We must handle structure initialization here
     ets_memset(&hwdt_last_call, 0, sizeof(hwdt_last_call));
   }
 
@@ -114,27 +104,26 @@ extern "C" {
 // backtrace from.
 //
 #if 0 // Model these in basic asm
-  // For clarity, this data gathering function is not part of the description.
-  // It is an outside observer to the caller callee context and discussion.
   /*
-    Called at function entry after stackframe setup and registers are saved.
-    call_site is the address in the caller that execution returns to after the call.
-    this_fn is entry point address of the called function.
+    this_fn - is the entry point address of the function being profiled.
+    We are notified after stackframe setup and registers are saved.
 
-    Note, the data is the same on both calls. We only save on the _enter.
-    The _exit is just a "ret.n".
+    call_site - is a0, the return address the profiled function will use to
+    return.
   */
   void __cyg_profile_func_enter(void *this_fn, void *call_site) {}
 
   /*
-    Called at function exit just before saved registers and stackframe are
-    restored.
+    Reports identical values as descibed above. This serves no purpose for our
+    allication.
   */
   void __cyg_profile_func_exit(void *this_fn, void *call_site) {}
 #endif
 
-// To speed things up, keept it simple. Make it small and compact.
-// We need to know the caller and stack position for analyzing the stack.
+/*
+  To speed things up, keept it simple. Make it small and compact.
+  We need to know the caller and stack position for analyzing the stack.
+*/
 asm (
   ".section        .iram.text.cyg_profile_func,\"ax\",@progbits\n\t"
   ".literal_position\n\t"
@@ -159,7 +148,7 @@ asm (
 
 };
 #else
-// NOOP
+// NOOP - added for conditional build flexablility
 asm (
   ".section        .iram.text.cyg_profile_func,\"ax\",@progbits\n\t"
   ".global __cyg_profile_func_enter\n\t"
