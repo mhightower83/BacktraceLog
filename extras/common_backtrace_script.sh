@@ -32,11 +32,12 @@ fi
 namesh="${0##*/}"
 myname="${namesh%.*}"
 cmd_args="$@"
+ESP_TOOLCHAIN_ADDR2LINE=""
 
 function print_help() {
   cat <<EOF
 
-  Search and display Arduino sketches found in the Arduino Build tree.
+  Search and display Arduino sketches found in the default Arduino Build tree.
   Select from the list the sketch to run with $myname.
   Pick action from the list $myname, map, exit, or unasm.
 
@@ -47,13 +48,12 @@ EOF
 
   $namesh
 
-  Prompted for list of backtrace addresses, when no backtrace-address is provided.
-
   or
 
-  Use fully specified command line:
+  $namesh <alternate search path for .elf files>
 
-  $namesh sketch-name.ino.elf [ backtrace-address1 [backtrace-address1] ...]
+  Presents a list of builds to select from. After selection, prompts
+  for list of backtrace addresses
 
 EOF
   elif [[ "idf_monitor" == "${1}" ]]; then
@@ -89,6 +89,12 @@ EOF
 # Get hardware environment matching tool for .elf file.
 function get_hardware_tool_path() {
   elfpath="${2%/*}"
+  if [[ ! -f "${elfpath}/build.options.json" ]]; then
+    clear >&2
+    echo "Missing file: \"${elfpath}/build.options.json\"" >&2
+    read -n1 anykey
+    return
+  fi
   readarray -td, hardware_folders < <( jq -r '.hardwareFolders' ${elfpath}/build.options.json )
   readarray -td, fqbn < <( jq -r '.fqbn' ${elfpath}/build.options.json )
   _fqbn="${fqbn[0]%:*}"
@@ -161,10 +167,12 @@ function do_viewer_dialog() {
   dialog \
     --no-collapse \
     --clear \
+    --extra-label "Copy Results" \
+    --extra-button \
     --cancel-label "Exit" \
     --ok-label "View" \
     --column-separator "|-|-|-|" \
-    --title "Backtrace File Viewer" \
+    --title "Backtrace Decoded Results" \
     --default-item $menu_item2 \
     --menu "Pick a file to view" 0 0 0 \
     --file $menu_config 2>$menu_output
@@ -188,7 +196,7 @@ function do_viewer_dialog() {
     menu_item2=${menu_item2#* }
   elif [[ $rc == 3 ]]; then
     # --extra-button was pressed.
-    # We use this for diff
+    # We use this for "copy decode"
     :
   else
     # export menu_item2
@@ -203,12 +211,19 @@ function do_viewer_dialog() {
 
   #replace echo with whatever you want to process the chosen entry
   echo "You selected: $entry"
-  jumpto=$( echo "$entry" | sed 's|^.* at /|/|' | cut -d':' -f2 | xargs )
-  # file=$( echo "$entry" | cut -d':' -f2 | sed 's|^[^/]*||g' )
-  file=$( echo "$entry" | sed 's|^.* at /|/|' | cut -d':' -f1 )
-  file=$( realpath "$file" )
+  jumpto=$( echo "${entry##*:}" | cut -d' ' -f1 )
 
-  if [[ $rc == 0 ]]; then
+  if [[ 0 -eq $jumpto || -z "$jumpto" ]]; then
+    file=""
+  else
+    file=$( echo "${entry#*: }" | sed 's|^.* at /|/|' | cut -d':' -f1 )
+    file=$( realpath "$file" )
+  fi
+  # clear
+  # echo "$jumpto '$file'"
+  # read -n1 anykey
+
+  if [[ 0 == $rc && 0 -ne $jumpto ]]; then
     # echo -n "$file" | xclip -selection clipboard
     # add2filehistory "$file"
     # clear
@@ -217,6 +232,8 @@ function do_viewer_dialog() {
     less +$jumpto -N -i "$file"
     # read -n1 anykey
     lastfile="$file"
+  elif [[ $rc == 3 ]]; then
+    cat "$file_command_output" | xclip -selection clipboard
   fi
   return $rc
 }
@@ -329,8 +346,10 @@ export -f statusfile
 
 function find_arduino_elfs() {
   # find -L . -xdev -type f ${1} "${2}" 2>/dev/null
-  if [ -n "${1}" ]; then
-    find /tmp  -xdev -type d -name "${1}" -exec find "{}" -type f -name '*elf' \; 2>/dev/null
+  if [ -n "${2}" ]; then
+    find ${1} -xdev -type d -name "${2}" -exec find "{}" -type f -name '*elf' \; 2>/dev/null
+  elif [ -n "{1}" ]; then
+    find "${1}" -type f -name '*elf' 2>/dev/null
   fi
 }
 
@@ -430,9 +449,15 @@ function do_main_dialog() {
     lastfile="$file"
     # echo "less +$jumpto -p\"${grep_pattern}\" $ignore_case \"$file\""
   elif [[ $rc == 3 ]]; then
-    add2filehistory "${file%.*}.map"
-    less -i "${file%.*}.map"
-    lastfile="${file}"
+    if [[ -f "${file%.*}.map" ]]; then
+      add2filehistory "${file%.*}.map"
+      less -i "${file%.*}.map"
+      lastfile="${file}"
+    else
+      clear
+      echo "Missing file: \"${file%.*}.map\""
+      read -n1 anykey
+    fi
   elif [[ $rc == 2 ]]; then
     # echo -n "$file" | xclip -selection clipboard
     add2filehistory "$file"
@@ -444,9 +469,17 @@ function do_main_dialog() {
 
 
 function make_main_menu() {
-  find_arduino_elfs 'arduino_build_*' |
+  find_arduino_elfs '/tmp' 'arduino_build_*' |
     sed '/^.\/.git/d' |
     sed 's/"/\\"/g' >$command_output
+  find_arduino_elfs '/tmp' 'arduino-sketch-*' |
+    sed '/^.\/.git/d' |
+    sed 's/"/\\"/g' >>$command_output
+  if [[ -n "${1}" ]]; then
+    find_arduino_elfs "${1}" |
+      sed '/^.\/.git/d' |
+      sed 's/"/\\"/g' >>$command_output
+  fi
   if [[ -s $command_output ]]; then
     mv $command_output $temp_io
     # build a dialog menu configuration file
@@ -497,7 +530,7 @@ trap "rm $command_output;
 if [[ "--help" == "${1}" ]]; then
   print_help "${myname}"
   exit 255
-elif make_main_menu; then
+elif make_main_menu "${1}"; then
   while :; do
     do_main_dialog "${myname}"
     rc=$?
@@ -519,7 +552,7 @@ elif make_main_menu; then
       cat $menu_output
       break
     fi
-    make_main_menu "${cmd_args[@]}"
+    make_main_menu "${1}"
   done
   echo "$namesh "${cmd_args[@]}
   echo "  ESP_TOOLCHAIN_ADDR2LINE='${ESP_TOOLCHAIN_ADDR2LINE}'"

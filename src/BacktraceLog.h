@@ -35,14 +35,14 @@
 #define ESP_DEBUG_BACKTRACELOG_USE_NON32XFER_EXCEPTION 0
 #endif
 
-#ifndef ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER
-#define ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER 0
+#ifndef ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET
+#define ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET 0
 #endif
 
-#if (ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER == 1)
+#if (ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET == 1)
 // Fix it
-#undef ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER
-#define ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER 64
+#undef ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET
+#define ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET 64
 #endif
 
 #define ESP_DEBUG_BACKTRACELOG_MIN 4
@@ -52,6 +52,8 @@
 #undef ESP_DEBUG_BACKTRACELOG_MAX
 #define ESP_DEBUG_BACKTRACELOG_MAX ESP_DEBUG_BACKTRACELOG_MIN // 32 => 172, 24 => 140, 16 => 108 bytes total size
 #endif
+
+// #include <user_interface.h>
 
 struct BacktraceLog {
     uint32_t chksum;
@@ -68,8 +70,14 @@ void backtraceLogClear(Print& out=Serial);
 int backtraceLogAvailable();
 int backtraceLogRead(uint32_t *p, size_t sz);
 int backtraceLogRead(struct BacktraceLog *p);
-extern "C" void backtrace_report(int (*ets_printf_P)(const char *fmt, ...));
-extern "C" void backtrace_clear(void);
+
+extern "C" void backtraceLog_report(int (*ets_printf_P)(const char *fmt, ...));
+extern "C" void backtraceLog_clear(void);
+
+// Only exposed to support hwdt_pre_sdk_init(). Otherwise, not needed.
+extern "C" void backtraceLog_begin(struct rst_info *reset_info);
+extern "C" void backtraceLog_fin(void);
+extern "C" void backtraceLog_write(void*pc);
 
 #else // #if (ESP_DEBUG_BACKTRACELOG_MAX > 0)
 
@@ -84,9 +92,16 @@ int backtraceLogRead(uint32_t *p, size_t sz) { (void)p; (void)sz; return 0; }
 static inline __attribute__((always_inline))
 int backtraceLogRead(struct BacktraceLog *p) { (void)p; return 0; }
 static inline __attribute__((always_inline))
-void backtrace_report(int (*ets_printf_P)(const char *fmt, ...)) { (void)ets_printf_P; }
+void backtraceLog_report(int (*ets_printf_P)(const char *fmt, ...)) { (void)ets_printf_P; }
 static inline __attribute__((always_inline))
-void backtrace_clear(void) {}
+void backtraceLog_clear(void) {}
+
+static inline __attribute__((always_inline))
+void backtraceLog_begin(struct rst_info *reset_info) { (void)reset_info; }
+static inline __attribute__((always_inline))
+void backtraceLog_fin(void) {}
+static inline __attribute__((always_inline))
+void backtraceLog_write(void*pc) { (void)pc; }
 #endif // #if (ESP_DEBUG_BACKTRACELOG_MAX > 0)
 
 #endif // #if (ESP_DEBUG_BACKTRACELOG_MAX > 0)

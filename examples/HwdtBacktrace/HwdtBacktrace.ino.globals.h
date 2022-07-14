@@ -10,6 +10,14 @@
 // -fno-optimize-sibling-calls
 // -fno-omit-frame-pointer
 
+// Options for BacktraceLog
+-DESP_DEBUG_BACKTRACELOG_MAX=32
+-DESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET=96
+// -DESP_DEBUG_BACKTRACELOG_SHOW=1
+ -DESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER=1
+// -DESP_DEBUG_BACKTRACE_CPP=1
+// -DESP_DEBUG_BACKTRACEIRAMLOG_CPP=1
+
 */
 
 /*@create-file:build.opt:debug@
@@ -36,6 +44,14 @@
 // If you are looking for specific data in the stack, you may find this option
 // useful.
 -fno-omit-frame-pointer
+
+// Options for BacktraceLog
+-DESP_DEBUG_BACKTRACELOG_MAX=32
+-DESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET=96
+// -DESP_DEBUG_BACKTRACELOG_SHOW=1
+// -DESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER=1
+// -DESP_DEBUG_BACKTRACE_CPP=1
+// -DESP_DEBUG_BACKTRACEIRAMLOG_CPP=1
 
 
 // Options for HWDT Stack Dump

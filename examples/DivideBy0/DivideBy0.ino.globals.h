@@ -6,8 +6,9 @@
 
 // When this works you will still see previous crash logs
 // after EXT_RST and sleep.
-// In this example are skipping the 1st 64 words of user RTC memory
--DESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER=128
+// User RTC memory starts at offset 64. In this example are skipping the 1st 32
+// words of user RTC memory to stay clear of eboot usage.
+-DESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET=96
 
 // -DESP_DEBUG_BACKTRACELOG_SHOW=1
 // -DESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER=1

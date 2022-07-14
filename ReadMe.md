@@ -1,5 +1,5 @@
 # Backtrace Log
-This library generates and stores a backtrace of a crash in an IRAM or DRAM log buffer. By crunching the stack trace and code to generate a list of function addresses that were at play when the crash occurred, we can condense the amount of data that needs to be stored for later analysis. Reducing the data to a small list allows storage in slivers of unused IRAM or noinit DRAM. Which can optionally be backed up to User RTC memory,
+This library generates and stores a backtrace of a crash in an IRAM or DRAM log buffer. By crunching the stack trace and code to generate a list of function addresses that were at play when the crash occurred, we can condense the amount of data that needs to be stored for later analysis. Reducing the data to a small list allows storage in slivers of unused IRAM or noinit DRAM. Which can optionally be backed up to User RTC memory.
 
 The library gains control at crash time through a postmortem callback function, `custom_crash_callback`. This library builds on Espressif's `backtrace.c`. It has been readapted from Open source RTOS to the Arduino ESP8266 environment using Espressif's NONOS SDK.
 
@@ -39,6 +39,7 @@ Some useful defines to include in your [`<sketch name>.ino.globals.h`](https://a
 
 // -DESP_DEBUG_BACKTRACELOG_SHOW=1
 // -DESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER=1
+// -DESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET=64
 */
 ```
 # Build define options
@@ -52,8 +53,18 @@ Show backtrace at the time of postmortem report.
 ## `-DESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER=1`
 The backtrace can be stored in DRAM or IRAM. The default is DRAM. To select IRAM add this option.
 
-## `-DESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER=64`
+## `-DESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET=64`
 Use with a DRAM or an IRAM log buffer. A backup copy of the log buffer is made to RTC memory at the specified word offset. "User RTC memory" starts at word 64. Specify a value of 64 or higher but lower than 192. If ESP_DEBUG_BACKTRACELOG_MAX is too large, the RTC buffer will be reduce to fit the available space. The RTC memory copy will persist across EXT_RST, sleep, and soft restarts, etc. For this option, EXT_RST and sleep are the added benefit. However, RTC memory will _not_ persist after pulsing the Power Enable pin or a power cycle. Depending on your requirements, you may want to reduce `ESP_DEBUG_BACKTRACELOG_MAX` to fit the space available or less if you need to store other data in the "User RTC memory".
+
+RTC memory 192 32-bit words total - data stays valid through sleep and EXT_RST
+```
+0                                 64         96                           192
+|                                 |<-eboot-->|<---user available space---->|
+|<----------system data---------->|<--------------user data--------------->|
+|   64 32-bit words (256 bytes)   |     128 32-bit words (512 bytes)       |
+```
+
+When doing OTA upgrades, the first 32 words of the user data area is used by `eboot`. Offset 64 through 95 can be overwritten.
 
 ## `-DESP_DEBUG_BACKTRACELOG_USE_NON32XFER_EXCEPTION=1`
 The downside of using the non32xfer exception handler is the added stack loading to handle the exception. Thus, requiring an additional 272 bytes of stack space. Not using the exception handler only increases BacktrackLog code size by 104 bytes of FLASH code space. _I am not sure this option should be available._ It defaults to off.

@@ -18,7 +18,7 @@
   Save a copy of backtrace results in an IRAM or DRAM buffer possitioned to not
   be reused or overwritten at restart.
 
-  void backtrace_report(Print& out, bool clear);
+  void backtraceLog_report(Print& out, bool clear);
   Print saved backtrace data and optionally clear the data.
 
   To build with backtrace support define the number of function call levels with
@@ -26,11 +26,16 @@
   between 0 and 4, it is reset to 32.
 
   RTC memory 192 32-bit words total - data stays valid through sleep and EXT_RST
-  0                                 64                                       192
+  0                                 64         96                           192
+  |                                 |<-eboot-->|<---user available space---->|
+  |                                 | 32 words |          96 words           |
   |<----------system data---------->|<--------------user data--------------->|
   | 64 32-bit words (256 bytes)     |     128 32-bit words (512 bytes)       |
 
-  ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER - set to start word for RTC memory
+  When doing OTA upgrades, the first 32 words of the user data area is used by
+  eboot (struct eboot_command). Offset 64 through 95 can be overwritten.
+
+  ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET - set to start word for RTC memory
   Cannot be less than 64 or more then 192
 
   TODO -
@@ -56,22 +61,28 @@
 #if (ESP_DEBUG_BACKTRACELOG_MAX > 0)
 #include "backtrace.h"
 
-// Need a durable log buffer - as in long life, persisting across reboots.
-// Options are to use IRAM or noinit DRAM, with an option to backup to user RTC
-
 union BacktraceLogUnion {
     struct BacktraceLog log;
     uint32_t word32[sizeof(struct BacktraceLog) / sizeof(uint32_t)];
 };
+
+struct MEM_INFO {
+    void *addr;
+    size_t sz;
+};
+
+// Need a durable log buffer - as in long life, persisting across reboots.
+// Options are to use IRAM or noinit DRAM, with an option to backup to user RTC
+
 union BacktraceLogUnion *pBT = NULL;
 
-#if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER
-#if (ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER < 64) || (ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER >= 192)
-#error "ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER offset is out of range (64 - 192) for user RTC memory"
+#if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET
+#if (ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET < 64) || (ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET >= 192)
+#error "ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET offset is out of range (64 - 192) for user RTC memory"
 #endif
 #endif
 
-#if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER
+#if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET
 struct RTC_Status {
     size_t size;  // Size set to zero when not available, bytes
     size_t max_depth;
@@ -80,8 +91,8 @@ struct RTC_Status {
 constexpr size_t baseSize32BacktraceLog = offsetof(union BacktraceLogUnion, log.pc) / sizeof(uint32_t);
 #endif
 
-#if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER
-// assert(sizeof(struct BacktraceLog) <= 512 - ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET);
+#if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET
+// assert(sizeof(struct BacktraceLog) <= 512 - ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET_OFFSET);
 #endif
 
 // The block should be in 8-byte increments and fall on an 8-byte alignment.
@@ -126,7 +137,11 @@ static uint16_t xorChecksum16(void *p, size_t len16, uint16 xsum16 = 0)
 */
 inline bool is_mem_valid(void) {
     // "mem" refers to IRAM or noinit DRAM. RTC mem is different.
-    return (REASON_WDT_RST <= resetInfo.reason && REASON_SOFT_RESTART >= resetInfo.reason);
+    return (
+      REASON_DEFAULT_RST != resetInfo.reason &&  // Not power-on
+      REASON_DEEP_SLEEP_AWAKE != resetInfo.reason &&
+      REASON_EXT_SYS_RST >= resetInfo.reason
+    );
 }
 
 int backtraceLogRead(uint32_t *p, size_t sz) {
@@ -157,7 +172,7 @@ void backtraceLogReport(Print& out) {
     }
 
     out.printf_P(PSTR("  Boot Count: %u\r\n"), pBT->log.bootCounter);
-    #if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER
+    #if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET
     #if ESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER
     out.printf_P(PSTR("  Config: IRAM log buffer w/RTC(%u): %u bytes, MAX backtrace: %u levels\r\n"), rtc_status.size, sizeof(union BacktraceLogUnion), pBT->log.max);
     #else
@@ -174,7 +189,7 @@ void backtraceLogReport(Print& out) {
     }
     if (pBT->log.count) {
         out.printf_P(PSTR("  Reset Reason: %u\r\n"), pBT->log.rst_info.reason);
-        if (pBT->log.rst_info.reason < 100) {
+        if (100 > pBT->log.rst_info.reason && REASON_WDT_RST != pBT->log.rst_info.reason) {
             out.printf_P(PSTR("  Exception (%d):\r\n  epc1=0x%08x epc2=0x%08x epc3=0x%08x excvaddr=0x%08x depc=0x%08x\r\n"),
                 pBT->log.rst_info.exccause, pBT->log.rst_info.epc1,
                 pBT->log.rst_info.epc2, pBT->log.rst_info.epc3,
@@ -195,7 +210,7 @@ void backtraceLogReport(Print& out) {
 
 void backtraceLogClear(Print& out) {
     (void)out;
-    backtrace_clear();
+    backtraceLog_clear();
 }
 
 int backtraceLogAvailable() {
@@ -219,17 +234,6 @@ int umm_info_safe_printf_P(const char *fmt, ...) __attribute__((format(printf, 1
 #define SHOW_PRINTF(fmt, ...)
 #endif
 
-#if 0
-static uint32_t do_checksum(union BacktraceLogUnion *pBT) {
-    uint32_t chksum = 0;
-    if (pBT) {
-        chksum = (uint32_t)pBT + (uint32_t)custom_crash_callback +
-            pBT->log.crashCount + pBT->log.count;
-        if (0 == chksum) chksum = 1;
-    }
-    return chksum;
-}
-#else
 static uint32_t do_checksum(union BacktraceLogUnion *p) {
     uint32_t chksum = 0x80000000u;
     if (p) {
@@ -240,9 +244,8 @@ static uint32_t do_checksum(union BacktraceLogUnion *p) {
     }
     return chksum;
 }
-#endif
 
-void backtrace_report(int (*ets_printf_P)(const char *fmt, ...)) {
+void backtraceLog_report(int (*ets_printf_P)(const char *fmt, ...)) {
     if (NULL == ets_printf_P) {
         ets_printf_P = umm_info_safe_printf_P;
     }
@@ -255,7 +258,7 @@ void backtrace_report(int (*ets_printf_P)(const char *fmt, ...)) {
     }
 
     ets_printf_P(PSTR("  Boot Count: %u\r\n"), pBT->log.bootCounter);
-    #if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER
+    #if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET
     #if ESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER
     ets_printf_P(PSTR("  Config: IRAM log buffer w/RTC(%u): %u bytes, MAX backtrace: %u levels\r\n"), rtc_status.size, sizeof(union BacktraceLogUnion), pBT->log.max);
     #else
@@ -291,7 +294,7 @@ void backtrace_report(int (*ets_printf_P)(const char *fmt, ...)) {
     }
 }
 
-void backtrace_clear(void) {
+void backtraceLog_clear(void) {
     if (pBT) {
         size_t start_wd = offsetof(union BacktraceLogUnion, log.crashCount) / sizeof(uint32_t);
         size_t sz = offsetof(union BacktraceLogUnion, log.pc)
@@ -300,9 +303,10 @@ void backtrace_clear(void) {
         // memset(&pBT->log.crashCount, 0, sz);
         memset(&pBT->word32[start_wd], 0, sz);
 
-#if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER
+#if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET
         if (rtc_status.size) {
-            system_rtc_mem_write(ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER, &pBT->word32[0], rtc_status.size);
+            // No prior NONOS SDK initialization needed to call.
+            system_rtc_mem_write(ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET, &pBT->word32[0], rtc_status.size);
         }
 #endif
     }
@@ -316,8 +320,7 @@ void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t 
         return;
     }
 
-    memcpy(&pBT->log.rst_info, rst_info, sizeof(struct rst_info));
-
+    backtraceLog_begin(rst_info);
     // Assume no exception frame to work with. As with software abort/panic/...
     struct __exception_frame * frame = NULL;
     if (rst_info->reason < 100) {
@@ -378,33 +381,19 @@ void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t 
 
     ETS_PRINTF2("\n\nBacktrace Crash Reporter - User space:\n ");
     SHOW_PRINTF("\nBacktrace:");
-    pBT->log.crashCount++;
-    pBT->log.count = 0;
-
     int repeat;
     do {
         i_pc = pc;
         i_sp = sp;
         ETS_PRINTF2(" %p:%p", pc, sp);
         SHOW_PRINTF(" %p:%p", pc, sp);
-        if (pBT->log.count >= pBT->log.max) {
-            break;
-        }
-        pBT->log.pc[pBT->log.count++] = pc;
+        backtraceLog_write(pc);
         repeat = xt_retaddr_callee(i_pc, i_sp, lr, &pc, &sp);
         lr = NULL;
     } while(repeat);
     ETS_PRINTF2("\n\n");
     SHOW_PRINTF("\n\n");
-
-    pBT->log.chksum = do_checksum(pBT);
-
-#if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER
-    if (rtc_status.size) {
-        system_rtc_mem_write(ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER, &pBT->word32[0], rtc_status.size);
-    }
-#endif
-    // backtrace_report(umm_info_safe_printf_P);
+    backtraceLog_fin();
 }
 
 
@@ -419,23 +408,23 @@ void backtrace_init(union BacktraceLogUnion *p, size_t max, bool force) {
     }
 }
 
-#if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER
+#if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET
 static void rtc_check_init(union BacktraceLogUnion *pBT) {
     rtc_status.size = 0;
     rtc_status.max_depth = 0;
 
-    int free_rtc = (192 - ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER) - baseSize32BacktraceLog;
+    int free_rtc = (192 - ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET) - baseSize32BacktraceLog;
     if (free_rtc >= ESP_DEBUG_BACKTRACELOG_MIN) {
         rtc_status.max_depth = (free_rtc < ESP_DEBUG_BACKTRACELOG_MAX) ? free_rtc : ESP_DEBUG_BACKTRACELOG_MAX;
         rtc_status.size = 4 * (baseSize32BacktraceLog + rtc_status.max_depth);
-        system_rtc_mem_read(ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER, &pBT->word32[0], rtc_status.size);
+        system_rtc_mem_read(ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET, &pBT->word32[0], rtc_status.size);
         if (pBT->log.max == rtc_status.max_depth && pBT->log.chksum == do_checksum(pBT)) {
             pBT->log.bootCounter++;
             pBT->log.chksum = do_checksum(pBT);
         } else {
             backtrace_init(pBT, rtc_status.max_depth, true);
         }
-        system_rtc_mem_write(ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER, &pBT->word32[0], rtc_status.size);
+        system_rtc_mem_write(ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET, &pBT->word32[0], rtc_status.size);
     }
 }
 #else
@@ -443,7 +432,6 @@ static inline void rtc_check_init(union BacktraceLogUnion *pBT) {
     (void)pBT;
 }
 #endif
-
 
 /////////////////////////////////////////////////////////////////////////////
 //  For the case of an IRAM log buffer, initialization occurs through:
@@ -458,43 +446,55 @@ static inline void rtc_check_init(union BacktraceLogUnion *pBT) {
   initialization time.
 */
 #include <sys/config.h>  // For config/core-isa.h
-extern "C" void _text_end(void);
+void _text_end(void);
+
+static struct MEM_INFO set_pBT(void) {
+    uintptr_t iram_buffer = (uintptr_t)_text_end + 32;
+    iram_buffer &= ~7;
+    ssize_t iram_buffer_sz = iram_buffer - (uintptr_t)XCHAL_INSTRAM1_VADDR;
+    if (iram_buffer_sz < MMU_IRAM_SIZE) {
+        iram_buffer_sz = MMU_IRAM_SIZE - iram_buffer_sz;
+    } else {
+        iram_buffer_sz = 0;
+    }
+
+    if (IRAM_RESERVE_SZ <= iram_buffer_sz) {
+        if (pBT && pBT->log.chksum == do_checksum(pBT)) {
+            // we need the computation; however, avoid double init
+        } else {
+            pBT = (union BacktraceLogUnion *)iram_buffer;
+            bool zero = !is_mem_valid() && pBT;
+            backtrace_init(pBT, ESP_DEBUG_BACKTRACELOG_MAX, zero);
+            rtc_check_init(pBT);
+        }
+
+        // If you had another structure to allocate, calculate the next available
+        // IRAM location and size available.
+        iram_buffer += IRAM_RESERVE_SZ;
+        iram_buffer_sz -= IRAM_RESERVE_SZ;
+    } else {
+        pBT = NULL;
+    }
+
+    struct MEM_INFO mem;
+    mem.addr = NULL;
+    mem.sz = 0;
+    if (iram_buffer_sz > 0) {
+        mem.addr = (void *)iram_buffer;
+        mem.sz = iram_buffer_sz;
+    }
+    return mem;
+}
 
 #if defined(MMU_IRAM_HEAP)
-extern "C" void umm_init_iram(void) {
+void umm_init_iram(void) {
     /*
       Calculate the start of 2nd heap, staying clear of possible segment alignment
       adjustments and checksums. These can affect the persistence of data across
       reboots.
     */
-    uintptr_t sec_heap = (uintptr_t)_text_end + 32;
-    sec_heap &= ~7;
-
-    size_t sec_heap_sz = sec_heap - (uintptr_t)XCHAL_INSTRAM1_VADDR;
-    if (sec_heap_sz < MMU_IRAM_SIZE) {
-        sec_heap_sz = MMU_IRAM_SIZE - sec_heap_sz;
-    } else {
-        sec_heap_sz = 0;
-    }
-    if (sec_heap_sz >= IRAM_RESERVE_SZ + 3 * (UMM_OVERHEAD_ADJUST + sizeof(uint32_t))) {
-        sec_heap_sz -= IRAM_RESERVE_SZ;  // Shrink IRAM heap
-        #if 0 //swap location
-        umm_init_iram_ex((void *)sec_heap, sec_heap_sz, true);
-        pBT = (union BacktraceLogUnion *)(sec_heap + sec_heap_sz);
-        #else
-        pBT = (union BacktraceLogUnion *)sec_heap);
-        umm_init_iram_ex((void *)(sec_heap + IRAM_RESERVE_SZ), sec_heap_sz, true);
-        #endif
-    } else {
-        // Available IRAM is too tight. Give priority to IRAM Heap.
-        pBT = NULL;
-        if (sec_heap_sz >= (3 * (UMM_OVERHEAD_ADJUST + sizeof(uint32_t)))) {
-            umm_init_iram_ex((void *)sec_heap, sec_heap_sz, true);
-        }
-    }
-
-    backtrace_init(pBT, ESP_DEBUG_BACKTRACELOG_MAX, !is_mem_valid() );
-    rtc_check_init(pBT);
+    struct MEM_INFO sec_heap = set_pBT();
+    umm_init_iram_ex((void *)sec_heap.addr, sec_heap.sz, true);
 
 #if ESP_DEBUG_BACKTRACELOG_USE_NON32XFER_EXCEPTION
 #if defined(NON32XFER_HANDLER) || defined(MMU_IRAM_HEAP)
@@ -508,26 +508,10 @@ extern "C" void umm_init_iram(void) {
 #else // #if defined(MMU_IRAM_HEAP)
 // Nobody is using left over IRAM, grab a block after _text_end.
 void preinit(void) {
-    uintptr_t iram_buffer = (uintptr_t)_text_end + 32;
-    iram_buffer &= ~7;
-    size_t iram_buffer_sz = iram_buffer - (uintptr_t)XCHAL_INSTRAM1_VADDR;
-    if (iram_buffer_sz < MMU_IRAM_SIZE) {
-        iram_buffer_sz = MMU_IRAM_SIZE - iram_buffer_sz;
-    } else {
-        iram_buffer_sz = 0;
-    }
-    if (IRAM_RESERVE_SZ <= iram_buffer_sz) {
-        pBT = (union BacktraceLogUnion *)iram_buffer;
-        backtrace_init(pBT, ESP_DEBUG_BACKTRACELOG_MAX, !is_mem_valid() );
-        rtc_check_init(pBT);
+    struct MEM_INFO iram_buffer = set_pBT();
+    // If you had another structure to allocate, iram_buffer has the next address
+    // and remaining size available
 
-        #if 0
-        // If you had another structure to allocate, calculate the next available
-        // IRAM location and size available.
-        iram_buffer += IRAM_RESERVE_SZ;
-        iram_buffer_sz -= IRAM_RESERVE_SZ;
-        #endif
-    }
 #if ESP_DEBUG_BACKTRACELOG_USE_NON32XFER_EXCEPTION
 #if defined(NON32XFER_HANDLER) || defined(MMU_IRAM_HEAP)
     // Already handled from user_init()
@@ -548,14 +532,58 @@ void preinit(void) {
 */
 union BacktraceLogUnion _pBT __attribute__((section(".noinit")));
 
+static struct MEM_INFO set_pBT(void) {
+    // At boot pBT loaded from flash as zero.
+    if (pBT && pBT->log.chksum == do_checksum(pBT)) {
+        // If not zero, we have already run; check checksum.
+    } else {
+        pBT = &_pBT;
+        bool zero = !is_mem_valid();
+        backtrace_init(pBT, ESP_DEBUG_BACKTRACELOG_MAX, zero);
+        rtc_check_init(pBT);
+    }
+    struct MEM_INFO empty;
+    empty.sz = 0;
+    empty.addr = NULL;
+    return empty;
+}
+
 void preinit(void) {
-    pBT = &_pBT;
-    bool zero = !is_mem_valid();
-    backtrace_init(pBT, ESP_DEBUG_BACKTRACELOG_MAX, zero);
-    rtc_check_init(pBT);
+    (void)set_pBT();
 }
 #endif //#if ESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER
 
+/*
+  May be called as a result of HWDT callback hwdt_pre_sdk_init().
+  set_pBT must handle duplicate calls
+*/
+void backtraceLog_begin(struct rst_info *reset_info) {
+    set_pBT();
+    if (NULL == pBT) return;
+
+    memcpy(&pBT->log.rst_info, reset_info, sizeof(struct rst_info));
+    pBT->log.crashCount++;
+    pBT->log.count = 0;
+}
+
+void backtraceLog_fin(void) {
+    if (NULL == pBT) return;
+
+    pBT->log.chksum = do_checksum(pBT);
+#if ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET
+    if (rtc_status.size) {
+        system_rtc_mem_write(ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET, &pBT->word32[0], rtc_status.size);
+    }
+#endif
+}
+
+void backtraceLog_write(void*pc) {
+    if (NULL == pBT) return;
+
+    if (pBT && pBT->log.max > pBT->log.count) {
+        pBT->log.pc[pBT->log.count++] = pc;
+    }
+}
 
 }; // extern "C" {
 #endif // #if (ESP_DEBUG_BACKTRACELOG_MAX > 0)

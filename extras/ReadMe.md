@@ -18,7 +18,12 @@ ln common_backtrace_script.sh ~/bin/addr2line.sh
 ln common_backtrace_script.sh ~/bin/idf_monitor.sh
 ```
 
-Additional application required: `jq`
+Additional application required: `jq`, `xclip`
 ```
+sudo apt-get update
 sudo apt-get install jq
+sudo apt-get install xclip
 ```
+
+# Archive of build files
+When creating an archive of build directories, be sure to save the `build.options.json` file with the matching `.elf` file. This aids in finding the correct utilities that match your built.

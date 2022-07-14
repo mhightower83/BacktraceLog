@@ -36,6 +36,7 @@
 #include <hwdt_app_entry.h>
 #include <user_interface.h>
 #include <backtrace.h>
+#include <BacktraceLog.h>
 //
 // #include <cont.h>
 // #include <StackThunk.h>
@@ -69,7 +70,6 @@ extern "C" {
   #define ETS_PRINTF_P(fmt, ...) umm_info_safe_printf_P(fmt, ##__VA_ARGS__)
 
   void hwdt_pre_sdk_init(void) __attribute__((no_instrument_function));
-
   /*
     hwdt_pre_sdk_init() is called from HWDT Stack Dump before starting the SDK
     and before the Heap is available(); however, a 16K ICACHE is online.
@@ -84,16 +84,26 @@ extern "C" {
     // Note, this reset reason was determinted by HWDT Stack Dump not the SDK
     if (REASON_WDT_RST == hwdt_info.reset_reason) {
       void *i_pc, *i_sp, *lr, *pc = hwdt_last_call.pc, *sp = hwdt_last_call.sp;
-      ETS_PRINTF("\n\nHWDT Backtrace Crash Report:\n  Backtrace:");
+
+      struct rst_info reset_info;
+      memset(&reset_info, 0, sizeof(struct rst_info));
+      reset_info.reason = REASON_WDT_RST;
+      backtraceLog_begin(&reset_info);
+
+      ETS_PRINTF("\n\nHWDT Backtrace Crash Report:\n");
+      ETS_PRINTF("  Backtrace:");
       int repeat;
       do {
-          i_pc = pc;
-          i_sp = sp;
-          ETS_PRINTF(" %p:%p", pc, sp);
-          repeat = xt_retaddr_callee(i_pc, i_sp, lr, &pc, &sp);
-          lr = NULL;
+        i_pc = pc;
+        i_sp = sp;
+        ETS_PRINTF(" %p:%p", pc, sp);
+        backtraceLog_write(pc);
+        repeat = xt_retaddr_callee(i_pc, i_sp, lr, &pc, &sp);
+        lr = NULL;
       } while(repeat);
+      backtraceLog_fin();
       ETS_PRINTF("\n\n");
+
     }
     // We must handle structure initialization here
     ets_memset(&hwdt_last_call, 0, sizeof(hwdt_last_call));

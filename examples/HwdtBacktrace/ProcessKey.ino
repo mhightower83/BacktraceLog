@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include <esp8266_undocumented.h>
+#include <BacktraceLog.h>
+
 void crashMeIfYouCan(void)__attribute__((weak));
 int divideA_B(int a, int b);
 int divideA_B_bp(int a, int b);
@@ -8,11 +10,39 @@ int* nullPointer = NULL;
 
 void processKey(Print& out, int hotKey) {
   switch (hotKey) {
-    case 'r':
-      out.printf_P(PSTR("Reset, ESP.reset(); ...\r\n"));
-      ESP.reset();
-      break;
     case 't':
+      if (backtraceLogAvailable()) {
+        out.printf_P(PSTR("Backtrace log available.\r\n"));
+      } else {
+        out.printf_P(PSTR("No backtrace log available.\r\n"));
+      }
+      break;
+    case 'c':
+      out.printf_P(PSTR("Clear backtrace log\r\n"));
+      backtraceLogClear(out);
+      break;
+    case 'l':
+      out.printf_P(PSTR("Print backtrace log report\r\n\r\n"));
+      backtraceLogReport(out);
+      break;
+    case 'L': {
+        out.printf_P(PSTR("Print custom backtrace log report\r\n"));
+        size_t sz = backtraceLogAvailable();
+        if (sz) {
+          uint32_t pc[sz];
+          int count = backtraceLogRead(pc, sz);
+          if (count > 0) {
+            for (int i = 0; i < count; i++) {
+              out.printf_P(PSTR("  0x%08x\r\n"), pc[i]);
+            }
+          }
+        } else {
+          out.printf_P(PSTR("  <empty>\r\n"));
+        }
+      }
+      out.printf_P(PSTR("\r\n"));
+      break;
+    case 'r':
       out.printf_P(PSTR("Restart, ESP.restart(); ...\r\n"));
       ESP.restart();
       break;
@@ -84,8 +114,11 @@ void processKey(Print& out, int hotKey) {
     case '?':
       out.println();
       out.println(F("Press a key + <enter>"));
-      out.println(F("  r    - Reset, ESP.reset();"));
-      out.println(F("  t    - Restart, ESP.restart();"));
+      out.println(F("  r    - Restart, ESP.restart();"));
+      out.println(F("  t    - Test for backtrace log"));
+      out.println(F("  l    - Print backtrace log report"));
+      out.println(F("  L    - Print custom backtrace log report"));
+      out.println(F("  c    - Clear backtrace log"));
       out.println(F("  ?    - Print Help"));
       out.println();
       out.println(F("Crash with:"));
