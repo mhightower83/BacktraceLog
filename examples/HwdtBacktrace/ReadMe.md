@@ -1,11 +1,11 @@
 # Last PC:PS for HWDT Backtrace
 ## An Overview
-A problem with Hardware WDT, there is no indication of where the processor is stuck.
+With a Hardware WDT stack trace, you have a lot of data to wade through and no indication of where the processor is stuck. 
 
 This solution uses the [GCC Program Instrumentation Options'](https://gcc.gnu.org/onlinedocs/gcc/Instrumentation-Options.html) "instrument-functions" to call our tracking functions to capture the most recent functions called. It stores the last caller and Stack Pointer at each function entry.
 
 Files needed:
-* `<sketch name>.ino.globals.h` - compiler "instrument-functions" options file in the sketch folder
+* `<sketch name>.ino.globals.h` - compiler options file in the sketch folder, containing the "-finstrument-functions..." options.
 * `HwdtLastCall.cpp` - Add to the sketch folder. Handles tracking and printing/reporting from the `hwdt_pre_sdk_init()` callback.
 
 ## Implementation
@@ -25,14 +25,14 @@ Minimum suggested contents for file, (build options) to use the "-finstrument-fu
 ```
 /*@create-file:build.opt@
 -finstrument-functions
--finstrument-functions-exclude-function-list=app_entry,stack_thunk_get_,ets_intr_,ets_post,Cache_Read_Enable,non32xfer_exception_handler
--finstrument-functions-exclude-file-list=umm_malloc,hwdt_app_entry,core_esp8266_postmortem,core_esp8266_app_entry_noextra4k
+-finstrument-functions-exclude-function-list=app_entry,mmu_wrap_irom_fn,ets_intr_,ets_post,Cache_Read_Enable,non32xfer_exception_handler
+-finstrument-functions-exclude-file-list=umm_malloc,hwdt_app_entry,core_esp8266_postmortem,core_esp8266_app_entry_noextra4k,backtrace,StackThunk
 */
 
 /*@create-file:build.opt:debug@
 -finstrument-functions
--finstrument-functions-exclude-function-list=app_entry,stack_thunk_get_,ets_intr_,ets_post,Cache_Read_Enable,non32xfer_exception_handler
--finstrument-functions-exclude-file-list=umm_malloc,hwdt_app_entry,core_esp8266_postmortem,core_esp8266_app_entry_noextra4k
+-finstrument-functions-exclude-function-list=app_entry,mmu_wrap_irom_fn,ets_intr_,ets_post,Cache_Read_Enable,non32xfer_exception_handler
+-finstrument-functions-exclude-file-list=umm_malloc,hwdt_app_entry,core_esp8266_postmortem,core_esp8266_app_entry_noextra4k,backtrace,StackThunk
 */
 ```
 Additional exclusions may be needed when using functions that have critical code timing loops, like I<sup>2</sup>C or high-priority interrupt routines, etc.

@@ -6,7 +6,7 @@
 // -finstrument-functions
 // -finstrument-functions-exclude-function-list=app_entry,mmu_wrap_irom_fn,stack_thunk_get_,ets_intr_,ets_post,Cache_Read_Enable,non32xfer_exception_handler
 // -finstrument-functions-exclude-file-list=umm_malloc,hwdt_app_entry,core_esp8266_postmortem,core_esp8266_app_entry_noextra4k,backtrace,StackThunk
-// 
+//
 // -fno-optimize-sibling-calls
 // -fno-omit-frame-pointer
 
@@ -23,10 +23,9 @@
 -finstrument-functions-exclude-file-list=umm_malloc,hwdt_app_entry,core_esp8266_postmortem,core_esp8266_app_entry_noextra4k,backtrace,StackThunk
 
 
-// By removing "sibling and tail recursive calls" optimization, it can remove
-// some of the gaps in the traceable stack content. Preserves stack frames
-// created at each level as you call down to the next. Thus leaving a complete
-// trail to follow back up after a crash.
+// Removing the optimization for "sibling and tail recursive calls" will clear
+// up some gaps in the stack decoder report. Preserves stack frames created at
+// each level as you call down to the next.
 -fno-optimize-sibling-calls
 
 

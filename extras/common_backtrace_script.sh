@@ -179,6 +179,9 @@ function do_viewer_dialog() {
     # the Yes or OK button.
     # we use this for view/less
     :
+  elif [[ $rc == 255 ]]; then
+    # process as cancel/Exit
+    return 1
   elif [[ $rc == 2 ]]; then
     # --help-button was pressed.
     # Repurpose for edit, skip "HELP " to get to the menu number

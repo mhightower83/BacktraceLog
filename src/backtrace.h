@@ -64,7 +64,10 @@ struct BACKTRACE_PC_SP {
   void *pc;
   void *sp;
 };
-
+/**
+ * Similar to xt_return_address, except returns return address and matching
+ * stack frame.
+ */
 struct BACKTRACE_PC_SP xt_return_address_ex(int lvl);
 
 #ifdef __cplusplus

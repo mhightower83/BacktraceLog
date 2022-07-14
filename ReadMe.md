@@ -1,7 +1,9 @@
 # Backtrace Log
-This library generates and stores a backtrace of a crash in an IRAM or DRAM log buffer. By crunching the stack trace and code to generate a list of function calls that were at play when the crash occurred, we can condense the amount of data that needs to be stored for later analysis. Reducing the data to a small list allows storage in slivers of unused IRAM or noinit DRAM. Which can additionally be backed up to User RTC memory,
+This library generates and stores a backtrace of a crash in an IRAM or DRAM log buffer. By crunching the stack trace and code to generate a list of function addresses that were at play when the crash occurred, we can condense the amount of data that needs to be stored for later analysis. Reducing the data to a small list allows storage in slivers of unused IRAM or noinit DRAM. Which can optionally be backed up to User RTC memory,
 
 The library gains control at crash time through a postmortem callback function, `custom_crash_callback`. This library builds on Espressif's `backtrace.c`. It has been readapted from Open source RTOS to the Arduino ESP8266 environment using Espressif's NONOS SDK.
+
+> Note that Espressif's repository for the ESP8266_RTOS_SDK framework has the original version of the [`backtrace.c`](https://github.com/espressif/ESP8266_RTOS_SDK/blob/master/components/esp8266/source/backtrace.c) file that I modified. That site has the comment ["quite outdated"](https://github.com/espressif/ESP8266_RTOS_SDK#roadmap) in their `ReadMe.md`. They appear to be planning to migrate the project; however, it does not appear to have happened. For now, we have what we have.
 
 The method used by `backtrace.c` is to scan code backward disassembling for instructions that could be used to set up the stack frame for the current function. While this method by its nature is problematic, several improvements have been made to increase the reliability of the results. While it works for my test cases, there can be **no assurance it will work in all cases**.
 
@@ -51,7 +53,7 @@ Show backtrace at the time of postmortem report.
 The backtrace can be stored in DRAM or IRAM. The default is DRAM. To select IRAM add this option.
 
 ## `-DESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER=64`
-Use with a DRAM or an IRAM log buffer. A backup copy of the log buffer is made to RTC memory at the specified word offset. The user's RTC memory space starts at word 64. Specify a value of 64 or higher but lower than 192. If ESP_DEBUG_BACKTRACELOG_MAX is too large, the RTC buffer will be reduce to fit the available space. The RTC memory copy will persist across EXT_RST, sleep, and soft restarts, etc. For this option, EXT_RST and sleep are the added benefit. However, RTC memory will _not_ persist after pulsing the Power Enable pin or a power cycle.
+Use with a DRAM or an IRAM log buffer. A backup copy of the log buffer is made to RTC memory at the specified word offset. "User RTC memory" starts at word 64. Specify a value of 64 or higher but lower than 192. If ESP_DEBUG_BACKTRACELOG_MAX is too large, the RTC buffer will be reduce to fit the available space. The RTC memory copy will persist across EXT_RST, sleep, and soft restarts, etc. For this option, EXT_RST and sleep are the added benefit. However, RTC memory will _not_ persist after pulsing the Power Enable pin or a power cycle. Depending on your requirements, you may want to reduce `ESP_DEBUG_BACKTRACELOG_MAX` to fit the space available or less if you need to store other data in the "User RTC memory".
 
 ## `-DESP_DEBUG_BACKTRACELOG_USE_NON32XFER_EXCEPTION=1`
 The downside of using the non32xfer exception handler is the added stack loading to handle the exception. Thus, requiring an additional 272 bytes of stack space. Not using the exception handler only increases BacktrackLog code size by 104 bytes of FLASH code space. _I am not sure this option should be available._ It defaults to off.
@@ -67,26 +69,29 @@ Additional development debug prints. I may purged these at a later date.
 Helpful build options, you can add to your `<sketche name>.ino.globals.h` file. Note, these options may create new problems by increased code, stack size, and execution time.
 
 ## `-fno-optimize-sibling-calls`
-This option makes backtrace more productive. By removing "sibling and tail recursive calls" optimization, it improves the traceable stack content. Preserves stack frames created at each level as you call down to the next. Thus leaving a complete trail to follow back up after a crash.
+Removing the optimization for "sibling and tail recursive calls" will clear up some gaps in the stack decoder report. Preserves stack frames created at each level as you call down to the next.
 
 This option is also beneficial when using the traditional method of copy/paste from the postmortem stack dump to the _ESP Exception Decoder_.
 
-This option may affect speed and stack growth; however, does not appear to have a significant effect on code size.
+This option will increase stack usage; however, does not appear to have a significant effect on code size.
 
 ## `-fno-omit-frame-pointer`
 Adds a pointer at the end of the stack frame highest (last) address -8 just before the return address at -12. Not necessary for this library. It may help to get your bearings when looking at a postmortem stack dump. Postmortem will annotate the stack dump line where it occurs with a `<` mark. If you are looking for specific data in the stack, you may find this option useful along with ESP_DEBUG_BACKTRACELOG_SHOW. It will help visually group each functions stack and ESP_DEBUG_BACKTRACELOG_SHOW will have references to those stack locations as well.
 
 # Decoding backtrace log
+There are a few options shown below for decoding the backtrace log. Also, check the [`extras`](https://github.com/mhightower83/BacktraceLog/tree/master/extras) folder for a handy script that can wrap around the chore of running `addr2line` and `idf_monitor.py`.
 ## addr2line
+Included with the build tools for Arduino ESP8266.
+
 Example decode line using `xtensa-lx106-elf-addr2line` in `tools/xtensa-lx106-elf/bin/`:
 ```bash
 xtensa-lx106-elf-addr2line -pfiaC -e BacktraceDemo.ino.elf 0x40201298 0x4020186c 0x40201186 0x40203088 0x40100f09
 ```
-## ESP Exception Decoder
-Surprisingly the _ESP Exception Decoder_ will also work. Copy paste the "Backtrace Crash Report" into the decode window.
-
 ## `idf_monitor.py`
 Espressif's [`idf_monitor.py`](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/tools/idf-monitor.html?highlight=idf_monitor) will also work.
+
+## ESP Exception Decoder
+Surprisingly the _ESP Exception Decoder_ will also work. Copy paste the "Backtrace Crash Report" into the decode window.
 
 # References:
 Maybe worth further investigation:
@@ -100,5 +105,5 @@ EspSaveCrash was the first example I found using the postmortem callback `custom
 * EspSaveCrash: https://github.com/krzychb/EspSaveCrash
 
 Credits: Original files before adaptation:
-* Espressif Systems (Shanghai) PTE LTD, from ESP8266 RTOS Software Development Kit - [backtrace.c](https://github.com/espressif/ESP8266_RTOS_SDK/blob/master/components/esp8266/source/backtrace.c)
-* Espressif Systems (Shanghai) PTE LTD, from ESP8266 RTOS Software Development Kit - [backtrace.h](https://github.com/espressif/ESP8266_RTOS_SDK/blob/master/components/esp8266/include/esp8266/backtrace.h)
+* Espressif Systems (Shanghai) PTE LTD, from ESP8266 RTOS Software Development Kit - [`backtrace.c`](https://github.com/espressif/ESP8266_RTOS_SDK/blob/master/components/esp8266/source/backtrace.c)
+* Espressif Systems (Shanghai) PTE LTD, from ESP8266 RTOS Software Development Kit - [`backtrace.h`](https://github.com/espressif/ESP8266_RTOS_SDK/blob/master/components/esp8266/include/esp8266/backtrace.h)
