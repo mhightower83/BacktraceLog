@@ -116,6 +116,11 @@ inline int sidx(void *a, uint32_t b) { return ((sint8_t)mmu_get_uint8((void*)((u
 // If we truely found the stack add instruction, then we should be able to scan
 // forward looking for a0 being saved and where.
 //
+// Except, if the function being evaluated never calls another function there is
+// no need to save a0 on the stack. Thus, this case would fail. Hmm, however,
+// when using profiler (-finstrument-functions) every function does call another
+// function forcing a0 to always be saved.
+//
 static int find_s32i_a0_a1(uint32_t pc, uint32_t off) {
     int a0_off = -1;  // Assume failed
 

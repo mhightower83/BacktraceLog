@@ -1,6 +1,8 @@
 # Backtrace Log
 This library generates and stores a backtrace of a crash in an IRAM or DRAM log buffer. By crunching the stack trace and code to generate a list of function addresses that were at play when the crash occurred, we can condense the amount of data that needs to be stored for later analysis. Reducing the data to a small list allows storage in slivers of unused IRAM or noinit DRAM. Which can optionally be backed up to User RTC memory.
 
+The Backtrace Log library adds about 3K bytes to the total sketch size. Of that, a minor 188 bytes is to support the RTC memory backup. The library can be disabled in the build by setting `-DESP_DEBUG_BACKTRACELOG_MAX=0` in the sketch build options.
+
 The library gains control at crash time through a postmortem callback function, `custom_crash_callback`. This library builds on Espressif's `backtrace.c`. It has been readapted from Open source RTOS to the Arduino ESP8266 environment using Espressif's NONOS SDK.
 
 > Note that Espressif's repository for the ESP8266_RTOS_SDK framework has the original version of the [`backtrace.c`](https://github.com/espressif/ESP8266_RTOS_SDK/blob/master/components/esp8266/source/backtrace.c) file that I modified. That site has the comment ["quite outdated"](https://github.com/espressif/ESP8266_RTOS_SDK#roadmap) in their `ReadMe.md`. They appear to be planning to migrate the project; however, it does not appear to have happened. For now, we have what we have.
@@ -53,7 +55,7 @@ Show backtrace at the time of postmortem report.
 ## `-DESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER=1`
 The backtrace can be stored in DRAM or IRAM. The default is DRAM. To select IRAM add this option.
 
-## `-DESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET=64`
+## `-DESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET=96`
 Use with a DRAM or an IRAM log buffer. A backup copy of the log buffer is made to RTC memory at the specified word offset. "User RTC memory" starts at word 64. Specify a value of 64 or higher but lower than 192. If ESP_DEBUG_BACKTRACELOG_MAX is too large, the RTC buffer will be reduce to fit the available space. The RTC memory copy will persist across EXT_RST, sleep, and soft restarts, etc. For this option, EXT_RST and sleep are the added benefit. However, RTC memory will _not_ persist after pulsing the Power Enable pin or a power cycle. Depending on your requirements, you may want to reduce `ESP_DEBUG_BACKTRACELOG_MAX` to fit the space available or less if you need to store other data in the "User RTC memory".
 
 RTC memory 192 32-bit words total - data stays valid through sleep and EXT_RST
@@ -89,6 +91,48 @@ This option will increase stack usage; however, does not appear to have a signif
 ## `-fno-omit-frame-pointer`
 Adds a pointer at the end of the stack frame highest (last) address -8 just before the return address at -12. Not necessary for this library. It may help to get your bearings when looking at a postmortem stack dump. Postmortem will annotate the stack dump line where it occurs with a `<` mark. If you are looking for specific data in the stack, you may find this option useful along with ESP_DEBUG_BACKTRACELOG_SHOW. It will help visually group each functions stack and ESP_DEBUG_BACKTRACELOG_SHOW will have references to those stack locations as well.
 
+## `-finstrument-functions`
+```
+// compiler command-line options to accommodate tracking last call before HWDT
+-finstrument-functions
+-finstrument-functions-exclude-function-list=app_entry,mmu_wrap_irom_fn,stack_thunk_get_,ets_intr_,ets_post,Cache_Read_Enable,non32xfer_exception_handler
+-finstrument-functions-exclude-file-list=umm_malloc,hwdt_app_entry,core_esp8266_postmortem,core_esp8266_app_entry_noextra4k,backtrace,StackThunk
+```
+For details about the GCC command line option `-finstrument-functions` see
+https://gcc.gnu.org/onlinedocs/gcc/Instrumentation-Options.html
+
+There are two possible cases for using this.
+1. Primary use was for Hardware WDT Stack Dump, see ReadMe.md in `examples/HwdtBacktrace` for details.
+2. However, it may be useful in debugging where a crash occurs in an end/edge function. In these function the compiler does not need to save the return address on the stack, making it difficult to backtrace through the stack. Using `-finstrument-functions`, will necessitate all functions to call the profiler enter/exit functions. There may be other/better optimization changes to achieve this goal; however, I don't know of them.
+
+For case 2 to link properly, you will need to add something like this:
+```
+extern "C" {
+IRAM_ATTR void __cyg_profile_func_enter(void *this_fn, void *call_site) __attribute__((no_instrument_function));
+IRAM_ATTR void __cyg_profile_func_exit(void *this_fn, void *call_site) __attribute__((no_instrument_function));
+
+/*
+  this_fn - is the entry point address of the function being profiled.
+  We are notified after stack-frame setup and registers are saved.
+
+  call_site - is a0, the return address the profiled function will use to
+  return.
+*/
+void __cyg_profile_func_enter(void *this_fn, void *call_site) {
+  (void)this_fn;
+  (void)call_site;
+}
+/*
+  Reports identical values as described above.
+*/
+void __cyg_profile_func_exit(void *this_fn, void *call_site) {
+  (void)this_fn;
+  (void)call_site;
+}
+};
+```
+
+
 # Decoding backtrace log
 There are a few options shown below for decoding the backtrace log. Also, check the [`extras`](https://github.com/mhightower83/BacktraceLog/tree/master/extras) folder for a handy script that can wrap around the chore of running `addr2line` and `idf_monitor.py`.
 ## addr2line
@@ -102,7 +146,7 @@ xtensa-lx106-elf-addr2line -pfiaC -e BacktraceDemo.ino.elf 0x40201298 0x4020186c
 Espressif's [`idf_monitor.py`](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/tools/idf-monitor.html?highlight=idf_monitor) will also work.
 
 ## ESP Exception Decoder
-Surprisingly the _ESP Exception Decoder_ will also work. Copy paste the "Backtrace Crash Report" into the decode window.
+Surprisingly the _ESP Exception Decoder_ will also work. Copy paste the "Backtrace Crash Report" into the decode window. Note, _ESP Exception Decoder_ uses the hex values following the first `Backtrace: ...` line. Additional lines starting with `Backtrace: ...` are ignored.
 
 # References:
 Maybe worth further investigation:

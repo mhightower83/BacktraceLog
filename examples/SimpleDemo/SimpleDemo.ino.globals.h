@@ -9,7 +9,7 @@
 // after EXT_RST and sleep.
 // User RTC memory starts at offset 64. In this example are skipping the 1st 32
 // words of user RTC memory to stay clear of eboot usage.
--DESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET=96
+//-DESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET=96
 
 // -DESP_DEBUG_BACKTRACELOG_SHOW=1
 -DESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER=1

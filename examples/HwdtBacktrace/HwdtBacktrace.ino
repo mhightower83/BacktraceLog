@@ -27,6 +27,7 @@
 #include <coredecls.h> // g_pcont - only needed for this debug demo
 #include <StackThunk.h>
 #include <BacktraceLog.h>
+BacktraceLog backtraceLog;
 
 void processKey(Print& out, int hotKey);
 

@@ -23,6 +23,14 @@
 # Additional applications required: jq
 #   sudo apt-get install jq
 
+# Define the dialog exit status codes
+: ${DIALOG_OK=0}
+: ${DIALOG_CANCEL=1}
+: ${DIALOG_HELP=2}
+: ${DIALOG_EXTRA=3}
+: ${DIALOG_ITEM_HELP=4}
+: ${DIALOG_ESC=255}
+
 # set config file
 DIALOGRC=$( realpath ~/.dialogrc.dark )
 if [[ ! -s "$DIALOGRC" ]]; then
@@ -162,9 +170,15 @@ function do_idf_monitor() {
 }
 
 function do_viewer_dialog() {
-  #launch the dialog, get the output in the menu_output file
   [[ -z "${menu_item2}" ]] && menu_item2=1
-  dialog \
+
+  # Duplicate (make a backup copy of) file descriptor 1
+  # on descriptor 3
+  exec 3>&1
+
+  # launch the dialog, get the output in the menu_output file
+  # catch the output value
+  menu_item2=$(dialog \
     --no-collapse \
     --clear \
     --extra-label "Copy Results" \
@@ -175,35 +189,34 @@ function do_viewer_dialog() {
     --title "Backtrace Decoded Results" \
     --default-item $menu_item2 \
     --menu "Pick a file to view" 0 0 0 \
-    --file $menu_config 2>$menu_output
+    --file $menu_config 2>&1 1>&3)
 
   rc=$?
 
   # recover the output value
-  menu_item2=$(<$menu_output)
+  # menu_item2=$(<$menu_output)
   echo "$menu_item2"
 
-  if [[ $rc == 0 ]]; then
-    # the Yes or OK button.
-    # we use this for view/less
-    :
-  elif [[ $rc == 255 ]]; then
-    # process as cancel/Exit
-    return 1
-  elif [[ $rc == 2 ]]; then
-    # --help-button was pressed.
-    # Repurpose for edit, skip "HELP " to get to the menu number
-    menu_item2=${menu_item2#* }
-  elif [[ $rc == 3 ]]; then
-    # --extra-button was pressed.
-    # We use this for "copy decode"
-    :
-  else
-    # export menu_item2
-    # Exit/No/Cancel, ESC and everything else
-    return $rc
-    # return 0  # don't exit
-  fi
+  case $rc in
+    $DIALOG_OK)
+      # the Yes or OK button.
+      # we use this for view/less
+      ;;
+    $DIALOG_HELP)
+      menu_item2=${menu_item2#* } ;;
+    $DIALOG_EXTRA)
+      # We use this for "copy decoded results"
+      ;;
+    # $DIALOG_ITEM_HELP)    # Item-help button pressed.
+    #   menu_item2=${menu_item2#* }
+    #   return $rc ;;
+    $DIALOG_CANCEL | $DIALOG_ESC)
+      # process as cancel/Exit
+      return 1 ;;
+    * )
+      # everything else
+      return $rc ;;
+  esac
 
   # recover the associated line in the output of the command
   # Format "* branch/tdescription"
@@ -223,7 +236,7 @@ function do_viewer_dialog() {
   # echo "$jumpto '$file'"
   # read -n1 anykey
 
-  if [[ 0 == $rc && 0 -ne $jumpto ]]; then
+  if [[ $DIALOG_OK == $rc && 0 -ne $jumpto ]]; then
     # echo -n "$file" | xclip -selection clipboard
     # add2filehistory "$file"
     # clear
@@ -232,7 +245,7 @@ function do_viewer_dialog() {
     less +$jumpto -N -i "$file"
     # read -n1 anykey
     lastfile="$file"
-  elif [[ $rc == 3 ]]; then
+  elif [[ $rc == $DIALOG_EXTRA ]]; then
     cat "$file_command_output" | xclip -selection clipboard
   fi
   return $rc
@@ -263,16 +276,16 @@ function do_file_viewer() {
     while :; do
       do_viewer_dialog
       rc=$?
-      if [[ $rc == 0 ]]; then     # OK
+      if [[ $rc == $DIALOG_OK ]]; then     # 0 == OK
         :
-      elif [[ $rc == 1 ]]; then   # Cancel
+      elif [[ $rc == $DIALOG_CANCEL ]]; then   # 1 == Cancel
         clear
         # echo "Exit"
         # read -n1 anykey
         break
-      elif [[ $rc == 2 ]]; then   # Help
+      elif [[ $rc == $DIALOG_HELP ]]; then   # 2 = Help
         :
-      elif [[ $rc == 3 ]]; then   # Extra
+      elif [[ $rc == $DIALOG_EXTRA ]]; then   # 3 == Extra
         :
       else
         clear
@@ -389,23 +402,47 @@ function do_main_dialog() {
   # menu_item=$(<$menu_output)
   echo "$menu_item"
 
-  if [[ $rc == 0 ]]; then
-    # the Yes or OK button.
-    # we use this to run the our main identity
-    :
-  elif [[ $rc == 2 ]]; then
-    # --help-button was pressed.
-    # Repurpose for unasm, skip "HELP " to get to the menu number
-    menu_item=${menu_item#* }
-  elif [[ $rc == 3 ]]; then
-    # --extra-button was pressed.
-    # We use this to diaplay the .map file
-    # select_action
-    :
-  else
-    # Exit/No/Cancel (1), ESC (255) and everything else
-    return $rc
-  fi
+  case $rc in
+    $DIALOG_OK)
+      # the Yes or OK button.
+      # we use this for view/less
+      ;;
+    $DIALOG_CANCEL)
+      ;;
+    $DIALOG_HELP)
+      # Repurpose for unasm, skip "HELP " to get to the menu number
+      menu_item=${menu_item#* } ;;
+    $DIALOG_EXTRA)
+      # We use this to diaplay the .map file
+      ;;
+    # $DIALOG_ITEM_HELP)    # Item-help button pressed.
+    #   menu_item2=${menu_item2#* }
+    #   return $rc ;;
+    $DIALOG_ESC)
+      # process as cancel/Exit
+      return 1 ;;
+    * )
+      # everything else
+      return $rc ;;
+  esac
+  #D
+  #D  if [[ $rc == 0 ]]; then
+  #D    # the Yes or OK button.
+  #D    # we use this to run the our main identity
+  #D    :
+  #D  elif [[ $rc == 2 ]]; then
+  #D    # --help-button was pressed.
+  #D    # Repurpose for unasm, skip "HELP " to get to the menu number
+  #D    menu_item=${menu_item#* }
+  #D  elif [[ $rc == 3 ]]; then
+  #D    # --extra-button was pressed.
+  #D    # We use this to diaplay the .map file
+  #D    # select_action
+  #D    :
+  #D  else
+  #D    # Exit/No/Cancel (1), ESC (255) and everything else
+  #D    return $rc
+  #D  fi
 
   # recover the associated line in the output of the command
   # Format "* branch/tdescription"
@@ -417,7 +454,7 @@ function do_main_dialog() {
   file=$( echo "$entry" | cut -d\' -f2 )
   file=$( realpath "$file" )
 
-  if [[ $rc == 0 ]]; then
+  if [[ $rc == $DIALOG_OK ]]; then
     # echo -n "$file" | xclip -selection clipboard
     add2filehistory "$file"
     if [[ "addr2line" == "${myname}" ]]; then
@@ -448,17 +485,17 @@ function do_main_dialog() {
     fi
     lastfile="$file"
     # echo "less +$jumpto -p\"${grep_pattern}\" $ignore_case \"$file\""
-  elif [[ $rc == 3 ]]; then
+  elif [[ $rc == $DIALOG_EXTRA ]]; then
     if [[ -f "${file%.*}.map" ]]; then
       add2filehistory "${file%.*}.map"
       less -i "${file%.*}.map"
       lastfile="${file}"
     else
-      clear
+      # clear
       echo "Missing file: \"${file%.*}.map\""
       read -n1 anykey
     fi
-  elif [[ $rc == 2 ]]; then
+  elif [[ $rc == $DIALOG_HELP ]]; then
     # echo -n "$file" | xclip -selection clipboard
     add2filehistory "$file"
     do_unasm $* "$file"
@@ -534,16 +571,16 @@ elif make_main_menu "${1}"; then
   while :; do
     do_main_dialog "${myname}"
     rc=$?
-    if [[ $rc == 0 ]]; then     # OK
+    if [[ $rc == $DIALOG_OK ]]; then
       :
-    elif [[ $rc == 1 ]]; then   # Cancel
+    elif [[ $rc == $DIALOG_CANCEL ]]; then
       clear
       break
-    elif [[ $rc == 2 ]]; then   # Help
+    elif [[ $rc == $DIALOG_HELP ]]; then
       :
-    elif [[ $rc == 3 ]]; then   # Extra
+    elif [[ $rc == $DIALOG_EXTRA ]]; then
       :
-    elif [[ $rc == 255 ]]; then   # ESC
+    elif [[ $rc == $DIALOG_ESC ]]; then
       clear
       break
     else

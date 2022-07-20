@@ -14,8 +14,8 @@
  *   limitations under the License.
  */
 
-#ifndef BACKTRACELOG_H
-#define BACKTRACELOG_H
+#ifndef _BACKTRACELOG_H
+#define _BACKTRACELOG_H
 
 #ifndef ESP_DEBUG_BACKTRACELOG_MAX
 #define ESP_DEBUG_BACKTRACELOG_MAX 0
@@ -39,6 +39,30 @@
 #define ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET 0
 #endif
 
+/*
+ * If you already are using preinit, define ESP_DEBUG_BACKTRACELOG_PREINIT
+ * with a replacment name for BacktraceLog's preinit() and call it from your
+ * preinit();
+ */
+#ifndef ESP_DEBUG_BACKTRACELOG_PREINIT
+#define ESP_DEBUG_BACKTRACELOG_PREINIT preinit
+#endif
+extern "C" void ESP_DEBUG_BACKTRACELOG_PREINIT(void);
+
+struct BACKTRACELOG_MEM_INFO {
+    void *addr;
+    size_t sz;
+};
+/*
+ * Allow sketch to also reserve IRAM for data. Define callback through
+ * ESP_DEBUG_BACKTRACELOG_IRAM_RESERVE_CB. On entry, BacktraceLog indicates the
+ * next available address and size remaining. The callback should do likewise at
+ * exit. Address values should be 8 byte aligned.
+*/
+#ifdef ESP_DEBUG_BACKTRACELOG_IRAM_RESERVE_CB
+struct BACKTRACELOG_MEM_INFO ESP_DEBUG_BACKTRACELOG_IRAM_RESERVE_CB(void *, size_t);
+#endif
+
 #if (ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET == 1)
 // Fix it
 #undef ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET
@@ -55,7 +79,7 @@
 
 // #include <user_interface.h>
 
-struct BacktraceLog {
+struct BACKTRACE_LOG {
     uint32_t chksum;
     uint32_t max;
     uint32_t bootCounter;
@@ -65,11 +89,14 @@ struct BacktraceLog {
     void* pc[ESP_DEBUG_BACKTRACELOG_MAX];
 };
 
-void backtraceLogReport(Print& out=Serial);
-void backtraceLogClear(Print& out=Serial);
-int backtraceLogAvailable();
-int backtraceLogRead(uint32_t *p, size_t sz);
-int backtraceLogRead(struct BacktraceLog *p);
+class BacktraceLog {
+public:
+    void report(Print& out=Serial);
+    void clear(Print& out=Serial);
+    int  available();
+    int  read(uint32_t *p, size_t sz);
+    int  read(struct BACKTRACE_LOG *p);
+};
 
 extern "C" void backtraceLog_report(int (*ets_printf_P)(const char *fmt, ...));
 extern "C" void backtraceLog_clear(void);
@@ -81,16 +108,20 @@ extern "C" void backtraceLog_write(void*pc);
 
 #else // #if (ESP_DEBUG_BACKTRACELOG_MAX > 0)
 
-static inline __attribute__((always_inline))
-void backtraceLogReport(Print& out=Serial) { (void)out; }
-static inline __attribute__((always_inline))
-void backtraceLogClear(Print& out=Serial) { (void)out; }
-static inline __attribute__((always_inline))
-int backtraceLogAvailable() { return 0; }
-static inline __attribute__((always_inline))
-int backtraceLogRead(uint32_t *p, size_t sz) { (void)p; (void)sz; return 0; }
-static inline __attribute__((always_inline))
-int backtraceLogRead(struct BacktraceLog *p) { (void)p; return 0; }
+class BacktraceLog {
+public:
+  static inline __attribute__((always_inline))
+  void report(Print& out=Serial) { (void)out; }
+  static inline __attribute__((always_inline))
+  void clear(Print& out=Serial) { (void)out; }
+  static inline __attribute__((always_inline))
+  int available() { return 0; }
+  static inline __attribute__((always_inline))
+  int read(uint32_t *p, size_t sz) { (void)p; (void)sz; return 0; }
+  static inline __attribute__((always_inline))
+  int read(struct BACKTRACE_LOG *p) { (void)p; return 0; }
+};
+
 static inline __attribute__((always_inline))
 void backtraceLog_report(int (*ets_printf_P)(const char *fmt, ...)) { (void)ets_printf_P; }
 static inline __attribute__((always_inline))

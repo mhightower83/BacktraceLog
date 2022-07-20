@@ -16,6 +16,7 @@
 #include <ESP8266mDNS.h>
 #include <Esp.h>
 #include <BacktraceLog.h>
+BacktraceLog backtraceLog;
 
 #ifdef USE_WIFI
 #ifndef STASSID
@@ -33,7 +34,7 @@ void setup(void) {
   delay(200);    // This delay helps when using the 'Modified Serial monitor' otherwise it is not needed.
   Serial.printf_P(PSTR("\r\n\r\nSimple IRAM Crash Log Backtrace Demo ...\r\n\r\n"));
 
-  backtraceLogReport(Serial);
+  backtraceLog.report(Serial);
   Serial.println();
 
 #ifdef USE_WIFI
@@ -112,7 +113,7 @@ STATIC int level1(int a, int b) {
 void processKey(Print& out, int hotKey) {
   switch (hotKey) {
     case 't':
-      if (backtraceLogAvailable()) {
+      if (backtraceLog.available()) {
         out.printf_P(PSTR("Backtrace log available.\r\n"));
       } else {
         out.printf_P(PSTR("No backtrace log available.\r\n"));
@@ -120,18 +121,18 @@ void processKey(Print& out, int hotKey) {
       break;
     case 'c':
       out.printf_P(PSTR("Clear backtrace log\r\n"));
-      backtraceLogClear(out);
+      backtraceLog.clear(out);
       break;
     case 'l':
       out.printf_P(PSTR("Print backtrace log report\r\n\r\n"));
-      backtraceLogReport(out);
+      backtraceLog.report(out);
       break;
     case 'L': {
         out.printf_P(PSTR("Print custom backtrace log report\r\n"));
-        size_t sz = backtraceLogAvailable();
+        size_t sz = backtraceLog.available();
         if (sz) {
           uint32_t pc[sz];
-          int count = backtraceLogRead(pc, sz);
+          int count = backtraceLog.read(pc, sz);
           if (count > 0) {
             for (int i = 0; i < count; i++) {
               out.printf_P(PSTR("  0x%08x\r\n"), pc[i]);

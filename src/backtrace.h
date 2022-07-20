@@ -14,7 +14,8 @@
 
 // File source: https://github.com/espressif/ESP8266_RTOS_SDK/blob/master/components/esp8266/include/esp8266/backtrace.h
 
-#pragma once
+#ifndef _BACKTRACE_H
+#define _BACKTRACE_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -73,3 +74,5 @@ struct BACKTRACE_PC_SP xt_return_address_ex(int lvl);
 #ifdef __cplusplus
 }
 #endif
+
+#endif // _BACKTRACE_H

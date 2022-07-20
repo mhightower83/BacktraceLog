@@ -14,6 +14,7 @@
 */
 #include <user_interface.h>
 #include <BacktraceLog.h>
+BacktraceLog backtraceLog;
 
 extern struct rst_info resetInfo;
 
@@ -29,9 +30,9 @@ void setup() {
 
   Serial.printf("\r\n\r\n\r\nDemo: Divide by 0 Exception with sibling calls\r\n\r\n");
 
-  if (backtraceLogAvailable()) {
-    backtraceLogReport(Serial);
-    backtraceLogClear();
+  if (backtraceLog.available()) {
+    backtraceLog.report(Serial);
+    backtraceLog.clear();
   }
 
   if (!is_ram_persistent()) {

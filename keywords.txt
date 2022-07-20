@@ -14,17 +14,22 @@
 # Datatypes & Classes (KEYWORD1)
 #######################################
 
+BacktraceLog	KEYWORD1
 
 #######################################
 # Methods and Functions (KEYWORD2)
 #######################################
 
-backtraceLogAvailable	KEYWORD2
-backtraceLogClear	KEYWORD2
-backtraceLogRead	KEYWORD2
-backtraceLogReport	KEYWORD2
-backtrace_clear	KEYWORD2
-backtrace_report	KEYWORD2
+available	KEYWORD2
+backtraceLog_begin	KEYWORD2
+backtraceLog_clear	KEYWORD2
+backtraceLog_fin	KEYWORD2
+backtraceLog_init	KEYWORD2
+backtraceLog_report	KEYWORD2
+backtraceLog_write	KEYWORD2
+clear	KEYWORD2
+read	KEYWORD2
+report	KEYWORD2
 xt_pc_is_valid	KEYWORD2
 xt_retaddr_callee	KEYWORD2
 xt_return_address	KEYWORD2
@@ -35,8 +40,9 @@ xt_return_address_ex	KEYWORD2
 #######################################
 
 ESP_DEBUG_BACKTRACELOG_MAX	LITERAL1
+ESP_DEBUG_BACKTRACELOG_PREINIT	LITERAL1
 ESP_DEBUG_BACKTRACELOG_SHOW	LITERAL1
 ESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER	LITERAL1
 ESP_DEBUG_BACKTRACELOG_USE_NON32XFER_EXCEPTION	LITERAL1
-ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER	LITERAL1
+ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET	LITERAL1
 
