@@ -307,19 +307,22 @@ int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void
 struct BACKTRACE_PC_SP xt_return_address_ex(int lvl)
 {
     void *i_sp;
-    void *i_lr = NULL;
     void *i_pc;
 
     void *o_pc = NULL;
     void *o_sp;
 
-    __asm__ __volatile__("mov %0, a1\n\t" : "=r"(i_sp) :: "memory");
-    __asm__ __volatile__("movi %0, .\n\t" : "=r"(i_pc) :: "memory");
+    __asm__ __volatile__(
+      "mov  %[sp], a1\n\t"
+      "movi %[pc], .\n\t"
+      : [pc]"=r"(i_pc), [sp]"=r"(i_sp)
+      :
+      : "memory");
 
     // The net effect of calling this function raises level up by 2.
     // We will need to skip over two more levels
     lvl += 2;
-    while(lvl-- && xt_retaddr_callee(i_pc, i_sp, i_lr, &o_pc, &o_sp)) {
+    while(lvl-- && xt_retaddr_callee(i_pc, i_sp, NULL, &o_pc, &o_sp)) {
         i_pc = o_pc;
         i_sp = o_sp;
     }
@@ -342,19 +345,22 @@ void *xt_return_address(int lvl) {
 void *xt_return_address(int lvl)
 {
     void *i_sp;
-    void *i_lr = NULL;
     void *i_pc;
 
     void *o_pc = NULL;
     void *o_sp;
 
-    __asm__ __volatile__("mov %0, a1\n\t" : "=r"(i_sp) :: "memory");
-    __asm__ __volatile__("movi %0, .\n\t" : "=r"(i_pc) :: "memory");
+    __asm__ __volatile__(
+      "mov  %[sp], a1\n\t"
+      "movi %[pc], .\n\t"
+      : [pc]"=r"(i_pc), [sp]"=r"(i_sp)
+      :
+      : "memory");
 
     // The net effect of calling this function raises level up by 2.
     // We will need to skip over two more levels
     lvl += 2;
-    while(lvl-- && xt_retaddr_callee(i_pc, i_sp, i_lr, &o_pc, &o_sp)) {
+    while(lvl-- && xt_retaddr_callee(i_pc, i_sp, NULL, &o_pc, &o_sp)) {
         i_pc = o_pc;
         i_sp = o_sp;
     }

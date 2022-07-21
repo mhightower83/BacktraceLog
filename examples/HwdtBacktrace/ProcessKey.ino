@@ -142,6 +142,7 @@ void processKey(Print& out, int hotKey) {
 // With the current toolchain 10.1, using this to divide by zero will *not* be
 // caught at compile time.
 int __attribute__((noinline)) divideA_B(int a, int b) {
+  ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION();
   return (a / b);
 }
 
@@ -149,5 +150,6 @@ int __attribute__((noinline)) divideA_B(int a, int b) {
 // caught at compile time. And a hard coded breakpoint will be inserted.
 // Compiling with '-finstrument-functions' will change this to a runtime crash.
 int divideA_B_bp(int a, int b) {
+  ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION();
   return (a / b);
 }

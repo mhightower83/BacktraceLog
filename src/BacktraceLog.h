@@ -39,6 +39,10 @@
 #define ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET 0
 #endif
 
+#ifndef ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION
+#define ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION(...) __asm__ __volatile__("" ::: "a0", "memory")
+#endif
+
 /*
  * If you already are using preinit, define ESP_DEBUG_BACKTRACELOG_PREINIT
  * with a replacment name for BacktraceLog's preinit() and call it from your
@@ -107,6 +111,10 @@ extern "C" void backtraceLog_fin(void);
 extern "C" void backtraceLog_write(void*pc);
 
 #else // #if (ESP_DEBUG_BACKTRACELOG_MAX > 0)
+
+#ifndef ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION
+#define ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION(...)
+#endif
 
 class BacktraceLog {
 public:

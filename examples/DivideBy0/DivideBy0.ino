@@ -46,6 +46,7 @@ void setup() {
 }
 
 int __attribute__((noinline)) divideA_B(int a, int b) {
+  ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION();
   return (a / b);
 }
 

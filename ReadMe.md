@@ -1,7 +1,13 @@
 # Backtrace Log
-This library generates and stores a backtrace of a crash in an IRAM or DRAM log buffer. By crunching the stack trace and code to generate a list of function addresses that were at play when the crash occurred, we can condense the amount of data that needs to be stored for later analysis. Reducing the data to a small list allows storage in slivers of unused IRAM or noinit DRAM. Which can optionally be backed up to User RTC memory.
+Backtrace condenses the large stack dump to a form more easily stored or carried forward to the next boot cycle for deferred retrieval. BacktraceLog can store in an IRAM or DRAM log buffer. The log buffer can optionally be backed up to User RTC memory and persist across deep sleep.
 
-The Backtrace Log library adds about 3K bytes to the total sketch size. Of that, a minor 188 bytes is to support the RTC memory backup. The library can be disabled in the build by setting `-DESP_DEBUG_BACKTRACELOG_MAX=0` in the sketch build options.
+By backtrace, we are referring to a series of program execution addresses printed on a single line. These may represent the return points of each nested function call going backward from the crash address. To generate a report of source code locations, provide the list of addresses to a utility like `addr2line`.
+
+Because of some very efficient compiler optimizations, the call list may have gaps. Some optimization changes like `-fno-optimize-sibling-calls` can improve the backtrace report. This one has the downside of increasing Stack usage.
+
+BacktraceLog works through a postmortem callback. It stores and optionally prints a backtrace. The backtrace process extracts data by scanning the stack and machine code, looking at each stack frame for size and a return addresses. Faults due to WDT are more of an issue with edge functions. An edge function can hide an infinite loop from this method. The function does not need to store the return address on the Stack. The register `a0` is never overwritten by a function call. By adding an empty Extended ASM line, `asm volatile("" ::: "a0", "memory");`, near the top of these functions, can persuade the compiler to commit the return address to the Stack.
+
+The BacktraceLog library adds about 3K bytes to the total sketch size. Of that, a minor 188 bytes is to support the RTC memory backup. The library can be disabled in the build by setting `-DESP_DEBUG_BACKTRACELOG_MAX=0` in the sketch build options.
 
 The library gains control at crash time through a postmortem callback function, `custom_crash_callback`. This library builds on Espressif's `backtrace.c`. It has been readapted from Open source RTOS to the Arduino ESP8266 environment using Espressif's NONOS SDK.
 
@@ -11,38 +17,62 @@ The method used by `backtrace.c` is to scan code backward disassembling for inst
 
 When using an IRAM log buffer, it is placed after `_text_end` at the end of the IRAM code. Enough space is left between the log buffer and `_text_end` to ensure the log buffer is not overwritten by the boot loader during reboots. When using a DRAM log buffer, it is placed in the noinit section.
 
-As long as you do not do a hard reset or lose power, you should be able to see your backtrace at reboot. Or whenever you call `backtraceReport(Serial)`.
+As long as you do not do a hard reset or lose power, you should be able to see your backtrace at reboot. Or whenever you call `BacktraceLog::report(Serial)`.
 
 Minimal lines to use:
 ```cpp
 #include <Arduino.h>
 #include <BacktraceLog.h>
-
+BacktraceLog backtraceLog;
 ...
+
+void edge_fn(void) {
+  ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION();
+  ...
+}
 
 void setup() {
     ...
     Serial.begin(115200);
     ...
-    backtraceReport(Serial);
+    backtraceLog.report(Serial);
     ...
 }
 
 void loop() {
     ...
+    edge_fn();
 }
 ```
 
 Some useful defines to include in your [`<sketch name>.ino.globals.h`](https://arduino-esp8266.readthedocs.io/en/latest/faq/a06-global-build-options.html?highlight=build.opt#how-to-specify-global-build-defines-and-options) file.
 ```cpp
 /*@create-file:build.opt@
+
+// Maximum backtrace addresses to save  
 -DESP_DEBUG_BACKTRACELOG_MAX=32
+
+// Print backtrace after postmortem
+-DESP_DEBUG_BACKTRACELOG_SHOW=1
+
 -fno-optimize-sibling-calls
 
-// -DESP_DEBUG_BACKTRACELOG_SHOW=1
+// Use IRAM log buffer instead of DRAM
 // -DESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER=1
-// -DESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET=64
+
+// Backup log buffer to User RTC memory
+// -DESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET=96
 */
+
+#ifndef _INO_GLOBALS_H
+#define _INO_GLOBALS_H
+#if defined(__cplusplus) || ((!defined(__cplusplus) && !defined(__ASSEMBLER__)))
+#ifdef ESP_DEBUG_PORT
+#define ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION(...) __asm__ __volatile__("" ::: "a0", "memory")
+#else
+#define ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION(...)
+#endif
+#endif
 ```
 # Build define options
 These are build options you can add to your `<sketche name>.ino.globals.h` file
@@ -50,7 +80,7 @@ These are build options you can add to your `<sketche name>.ino.globals.h` file
 Enables backtrace logging by defining the maximum number of entries/levels/depth. Minimum value is 4. Values above 0 and less than 4 are processed as 4.
 
 ## `-DESP_DEBUG_BACKTRACELOG_SHOW=1`
-Show backtrace at the time of postmortem report.
+Print BacktraceLog report after postmortem stack dump.
 
 ## `-DESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER=1`
 The backtrace can be stored in DRAM or IRAM. The default is DRAM. To select IRAM add this option.
@@ -95,15 +125,15 @@ Adds a pointer at the end of the stack frame highest (last) address -8 just befo
 ```
 // compiler command-line options to accommodate tracking last call before HWDT
 -finstrument-functions
--finstrument-functions-exclude-function-list=app_entry,mmu_wrap_irom_fn,stack_thunk_get_,ets_intr_,ets_post,Cache_Read_Enable,non32xfer_exception_handler
--finstrument-functions-exclude-file-list=umm_malloc,hwdt_app_entry,core_esp8266_postmortem,core_esp8266_app_entry_noextra4k,backtrace,StackThunk
+-finstrument-functions-exclude-function-list=app_entry,ets_intr_,ets_post,Cache_Read_Enable,non32xfer_exception_handler
+-finstrument-functions-exclude-file-list=umm_malloc,hwdt_app_entry,core_esp8266_postmortem,core_esp8266_app_entry_noextra4k,mmu_iram,backtrace,BacktraceLog,StackThunk
 ```
 For details about the GCC command line option `-finstrument-functions` see
 https://gcc.gnu.org/onlinedocs/gcc/Instrumentation-Options.html
 
 There are two possible cases for using this.
 1. Primary use was for Hardware WDT Stack Dump, see ReadMe.md in `examples/HwdtBacktrace` for details.
-2. However, it may be useful in debugging where a crash occurs in an end/edge function. In these function the compiler does not need to save the return address on the stack, making it difficult to backtrace through the stack. Using `-finstrument-functions`, will necessitate all functions to call the profiler enter/exit functions. There may be other/better optimization changes to achieve this goal; however, I don't know of them.
+2. However, it may be useful in debugging where a crash occurs in an end/edge function. In these function the compiler does not need to save the return address on the stack, making it difficult to backtrace through the stack. Using `-finstrument-functions`, will necessitate all functions to call the profiler enter/exit functions. There may be other/better optimization changes to achieve this goal; however, I don't know of them. Adding `asm volatile("" ::: "a0", "memory");` at the top of the function is also another alternative for this issue.
 
 For case 2 to link properly, you will need to add something like this:
 ```
