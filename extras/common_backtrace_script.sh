@@ -22,6 +22,7 @@
 #
 # Additional applications required: jq
 #   sudo apt-get install jq
+#   sudo apt-get install xclip
 
 # Define the dialog exit status codes
 : ${DIALOG_OK=0}
@@ -71,28 +72,6 @@ EOF
 EOF
   fi
 }
-
-#
-# # TODO: Replace broad search with specific using build.options.json from
-# # the arduino build tree. This should allow for more precise tool match up
-# # with the .elf file. This needs to run for each .elf file selected.
-# # build.options.json should be archived with the .elf file.
-# function find_current() {
-#   # find and use newest xtensa-lx106-elf-addr2line
-#   find ~/  -xdev -type f -name $1 2>/dev/null |
-#     grep -v '/\.local/' |
-#     xargs stat --print="%.19y\t%N\n" |
-#     sort -u |
-#     tail -1 |
-#     cut -d\' -f2
-# }
-#
-#
-# if [[ -z "${ESP_TOOLCHAIN_ADDR2LINE}" ]]; then
-#   ESP_TOOLCHAIN_ADDR2LINE=$( find_current 'xtensa-lx106-elf-addr2line' )
-# fi
-# ESP_TOOLCHAIN_PREFIX="${ESP_TOOLCHAIN_ADDR2LINE%/*}/xtensa-lx106-elf-"
-
 
 # Get hardware environment matching tool for .elf file.
 function get_hardware_tool_path() {
@@ -170,15 +149,13 @@ function do_idf_monitor() {
 }
 
 function do_viewer_dialog() {
-  [[ -z "${menu_item2}" ]] && menu_item2=1
+  [[ -z "${menu_viewer_idx}" ]] && menu_viewer_idx=1
 
-  # Duplicate (make a backup copy of) file descriptor 1
-  # on descriptor 3
+  # Duplicate (make a backup copy of) file descriptor 1 on descriptor 3
   exec 3>&1
 
-  # launch the dialog, get the output in the menu_output file
   # catch the output value
-  menu_item2=$(dialog \
+  menu_viewer_idx=$(dialog \
     --no-collapse \
     --clear \
     --extra-label "Copy Results" \
@@ -187,15 +164,13 @@ function do_viewer_dialog() {
     --ok-label "View" \
     --column-separator "|-|-|-|" \
     --title "Backtrace Decoded Results" \
-    --default-item $menu_item2 \
+    --default-item $menu_viewer_idx \
     --menu "Pick a file to view" 0 0 0 \
     --file $menu_config 2>&1 1>&3)
 
   rc=$?
 
-  # recover the output value
-  # menu_item2=$(<$menu_output)
-  echo "$menu_item2"
+  echo "$menu_viewer_idx"
 
   case $rc in
     $DIALOG_OK)
@@ -203,13 +178,10 @@ function do_viewer_dialog() {
       # we use this for view/less
       ;;
     $DIALOG_HELP)
-      menu_item2=${menu_item2#* } ;;
+      menu_viewer_idx=${menu_viewer_idx#* } ;;
     $DIALOG_EXTRA)
       # We use this for "copy decoded results"
       ;;
-    # $DIALOG_ITEM_HELP)    # Item-help button pressed.
-    #   menu_item2=${menu_item2#* }
-    #   return $rc ;;
     $DIALOG_CANCEL | $DIALOG_ESC)
       # process as cancel/Exit
       return 1 ;;
@@ -219,11 +191,9 @@ function do_viewer_dialog() {
   esac
 
   # recover the associated line in the output of the command
-  # Format "* branch/tdescription"
-  entry=$(sed -n "${menu_item2}p" $command_output)
+  entry=$(sed -n "${menu_viewer_idx}p" $arduino_elfs_found)
 
-  #replace echo with whatever you want to process the chosen entry
-  echo "You selected: $entry"
+  echo -e "\nYou selected:\n  '$entry'\n"
   jumpto=$( echo "${entry##*:}" | cut -d' ' -f1 )
 
   if [[ 0 -eq $jumpto || -z "$jumpto" ]]; then
@@ -232,36 +202,31 @@ function do_viewer_dialog() {
     file=$( echo "${entry#*: }" | sed 's|^.* at /|/|' | cut -d':' -f1 )
     file=$( realpath "$file" )
   fi
+  # keep for later debug
   # clear
   # echo "$jumpto '$file'"
   # read -n1 anykey
 
   if [[ $DIALOG_OK == $rc && 0 -ne $jumpto ]]; then
-    # echo -n "$file" | xclip -selection clipboard
-    # add2filehistory "$file"
-    # clear
-    # less +$jumpto -p"${grep_pattern}" $ignore_case "$file"
+    add2filehistory "$file"
     [[ -n $jumpto && 1 -ne $jumpto ]] && jumpto=$(( $jumpto - 1 ))
     less +$jumpto -N -i "$file"
     # read -n1 anykey
     lastfile="$file"
   elif [[ $rc == $DIALOG_EXTRA ]]; then
-    cat "$file_command_output" | xclip -selection clipboard
+    cat "$addr2line_output" | xclip -selection clipboard
   fi
   return $rc
 }
 
 function make_file_menu() {
-  #replace ls with what you want
-  # search_tree "--no-color" | sed 's/ *$//g' >$command_output
-  # sed 's/\t/|-|-|-|/' |
   cat $1 |
   sed 's/\\/\\\\/g' |
-  sed 's/"/\\"/g' >$command_output
+  sed 's/"/\\"/g' >$arduino_elfs_found
 
-  if [[ -s $command_output ]]; then
+  if [[ -s $arduino_elfs_found ]]; then
     #build a dialog configuration file
-    cat $command_output |
+    cat $arduino_elfs_found |
       awk '{print NR " \"" $0 "\""}' |
       tr "\n" " " >$menu_config
   else
@@ -280,8 +245,6 @@ function do_file_viewer() {
         :
       elif [[ $rc == $DIALOG_CANCEL ]]; then   # 1 == Cancel
         clear
-        # echo "Exit"
-        # read -n1 anykey
         break
       elif [[ $rc == $DIALOG_HELP ]]; then   # 2 = Help
         :
@@ -290,12 +253,10 @@ function do_file_viewer() {
       else
         clear
         echo "Error: $rc"
-        cat $menu_output
+        echo "  menu_viewer_idx: '${menu_viewer_idx}'"
         break
       fi
     done
-    # echo "what $rc"
-    # read -n1 anykey
     echo "$namesh "${cmd_args[@]}
     echo " grep_pattern: \"${grep_pattern}\""
     printf '  %s\n' "${filehistory[@]}"
@@ -316,13 +277,9 @@ function do_addr2line() {
       grep -v "0x00000000" | grep -v "0x3ff" )
     echo ""
 
-    ${ESP_TOOLCHAIN_ADDR2LINE} -pfiaC -e $1 $INPUT >$file_command_output
-    # cat $file_command_output
-    # echo -e "\nPress any key to contine"
-    # read -n1 anykey
+    ${ESP_TOOLCHAIN_ADDR2LINE} -pfiaC -e $1 $INPUT >$addr2line_output
   else
-    ${ESP_TOOLCHAIN_ADDR2LINE} -pfiaC -e $* >$file_command_output
-    # cat $file_command_output
+    ${ESP_TOOLCHAIN_ADDR2LINE} -pfiaC -e $* >$addr2line_output
   fi
 }
 
@@ -366,19 +323,18 @@ function find_arduino_elfs() {
   fi
 }
 
-
+# Show a list of possible Arduino .elf files to pick from
 function do_main_dialog() {
-  #launch the dialog, get the output in the menu_output file
+  [[ -z "${menu_sketch_idx}" ]] && menu_sketch_idx=1
 
   OK_CMD=$1
   shift
 
-  # Duplicate (make a backup copy of) file descriptor 1
-  # on descriptor 3
+  # Duplicate (make a backup copy of) file descriptor 1 on descriptor 3
   exec 3>&1
 
   # catch the output value
-  menu_item=$(dialog \
+  menu_sketch_idx=$(dialog \
     --no-collapse \
     --clear \
     --extra-label "map" \
@@ -389,7 +345,7 @@ function do_main_dialog() {
     --ok-label $OK_CMD \
     --column-separator "\t" \
     --title "Arduino ESP8266 Sketch Builds" \
-    --default-item $menu_item \
+    --default-item $menu_sketch_idx \
     --menu "Select a build and click an operation" 0 0 0 \
     --file $menu_config 2>&1 1>&3)
 
@@ -398,9 +354,7 @@ function do_main_dialog() {
   # Close file descriptor 3
   exec 3>&-
 
-  # recover the output value
-  # menu_item=$(<$menu_output)
-  echo "$menu_item"
+  echo "$menu_sketch_idx"
 
   case $rc in
     $DIALOG_OK)
@@ -411,13 +365,10 @@ function do_main_dialog() {
       ;;
     $DIALOG_HELP)
       # Repurpose for unasm, skip "HELP " to get to the menu number
-      menu_item=${menu_item#* } ;;
+      menu_sketch_idx=${menu_sketch_idx#* } ;;
     $DIALOG_EXTRA)
       # We use this to diaplay the .map file
       ;;
-    # $DIALOG_ITEM_HELP)    # Item-help button pressed.
-    #   menu_item2=${menu_item2#* }
-    #   return $rc ;;
     $DIALOG_ESC)
       # process as cancel/Exit
       return 1 ;;
@@ -425,41 +376,20 @@ function do_main_dialog() {
       # everything else
       return $rc ;;
   esac
-  #D
-  #D  if [[ $rc == 0 ]]; then
-  #D    # the Yes or OK button.
-  #D    # we use this to run the our main identity
-  #D    :
-  #D  elif [[ $rc == 2 ]]; then
-  #D    # --help-button was pressed.
-  #D    # Repurpose for unasm, skip "HELP " to get to the menu number
-  #D    menu_item=${menu_item#* }
-  #D  elif [[ $rc == 3 ]]; then
-  #D    # --extra-button was pressed.
-  #D    # We use this to diaplay the .map file
-  #D    # select_action
-  #D    :
-  #D  else
-  #D    # Exit/No/Cancel (1), ESC (255) and everything else
-  #D    return $rc
-  #D  fi
 
   # recover the associated line in the output of the command
-  # Format "* branch/tdescription"
-  entry=$(sed -n "${menu_item}p" $command_output)
+  entry=$(sed -n "${menu_sketch_idx}p" $arduino_elfs_found)
 
-  #replace echo with whatever you want to process the chosen entry
-  echo "You selected: $entry"
+  echo -e "\nYou selected:\n  '$entry'\n"
   jumpto=1
   file=$( echo "$entry" | cut -d\' -f2 )
   file=$( realpath "$file" )
 
   if [[ $rc == $DIALOG_OK ]]; then
-    # echo -n "$file" | xclip -selection clipboard
     add2filehistory "$file"
     if [[ "addr2line" == "${myname}" ]]; then
       do_addr2line "$file" $*
-      do_file_viewer $file_command_output
+      do_file_viewer $addr2line_output
       rc=$?
       [[ "$rc" -eq 1 ]] && rc=0
     elif [[ "idf_monitor" == "${myname}" ]]; then
@@ -496,7 +426,6 @@ function do_main_dialog() {
       read -n1 anykey
     fi
   elif [[ $rc == $DIALOG_HELP ]]; then
-    # echo -n "$file" | xclip -selection clipboard
     add2filehistory "$file"
     do_unasm $* "$file"
     lastfile="$file"
@@ -508,17 +437,17 @@ function do_main_dialog() {
 function make_main_menu() {
   find_arduino_elfs '/tmp' 'arduino_build_*' |
     sed '/^.\/.git/d' |
-    sed 's/"/\\"/g' >$command_output
+    sed 's/"/\\"/g' >$arduino_elfs_found
   find_arduino_elfs '/tmp' 'arduino-sketch-*' |
     sed '/^.\/.git/d' |
-    sed 's/"/\\"/g' >>$command_output
+    sed 's/"/\\"/g' >>$arduino_elfs_found
   if [[ -n "${1}" ]]; then
     find_arduino_elfs "${1}" |
       sed '/^.\/.git/d' |
-      sed 's/"/\\"/g' >>$command_output
+      sed 's/"/\\"/g' >>$arduino_elfs_found
   fi
-  if [[ -s $command_output ]]; then
-    mv $command_output $temp_io
+  if [[ -s $arduino_elfs_found ]]; then
+    mv $arduino_elfs_found $temp_io
     # build a dialog menu configuration file
     maxwidth=$( sed 's:.*/: :' $temp_io | wc -L | cut -d' ' -f1 )
     if [[ $maxwidth -gt 8 ]]; then
@@ -527,9 +456,9 @@ function make_main_menu() {
     export maxwidth
     cat $temp_io |
       xargs -I {} bash -c 'statusfile "$@"' _ {} |
-      sort >$command_output
+      sort >$arduino_elfs_found
     # cut -c 34-
-    cat $command_output |
+    cat $arduino_elfs_found |
       awk '{print NR " \"" $0 "\""}' |
       tr "\n" " " >$menu_config
   else
@@ -545,25 +474,21 @@ function make_main_menu() {
 # From https://unix.stackexchange.com/a/70868
 
 #make some temporary files
-command_output=$(mktemp)
-file_command_output=$(mktemp)
+arduino_elfs_found=$(mktemp)
+addr2line_output=$(mktemp)
 menu_config=$(mktemp)
-menu_output=$(mktemp)
 temp_io=$(mktemp)
 lastfile=""
-lastaction=255
-menu_item=1
+menu_sketch_idx=1
+menu_viewer_idx=1
 maxwidth=20
 
 #make sure the temporary files are removed even in case of interruption
-trap "rm $command_output;
-      rm $file_command_output;
-      rm $menu_output;
+trap "rm $arduino_elfs_found;
+      rm $addr2line_output;
       rm $temp_io;
       rm $menu_config;" SIGHUP SIGINT SIGTERM
 
-
-# if make_main_menu "${cmd_args[@]}"; then
 if [[ "--help" == "${1}" ]]; then
   print_help "${myname}"
   exit 255
@@ -586,7 +511,8 @@ elif make_main_menu "${1}"; then
     else
       clear
       echo "Error: $rc"
-      cat $menu_output
+      echo "  menu_sketch_idx: '${menu_sketch_idx}'"
+      echo "  menu_viewer_idx: '${menu_viewer_idx}'"
       break
     fi
     make_main_menu "${1}"
@@ -599,12 +525,9 @@ else
   echo "  $namesh "${cmd_args[@]}
 fi
 
-# do_idf_monitor $( find_arduino_elfs 'arduino_build_*' )
-
-#clean the temporary files
-[ -f $command_output ] && rm $command_output
-[ -f $file_command_output ] && rm $file_command_output
-[ -f $menu_output ] && rm $menu_output
+# clean up the temporary files
+[ -f $arduino_elfs_found ] && rm $arduino_elfs_found
+[ -f $addr2line_output ] && rm $addr2line_output
 [ -f $menu_config ] && rm $menu_config
 [ -f $temp_io ] && rm $temp_io
 

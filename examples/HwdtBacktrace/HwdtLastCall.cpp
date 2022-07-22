@@ -180,7 +180,7 @@ extern "C" {
     // Make stack saturation is harmless. We continue to track stack levels
     // above stack_sz so we know where we are when it comes back down.
     if (stack_sz > level && 0 <= level) {
-      // The case "0 <= level" should never happen, Just incase.
+      // The case "0 <= level" should never fail, Just incase.
       hwdt_last_call.last[level].pc = pc;
       hwdt_last_call.last[level].sp = sp;
     }
