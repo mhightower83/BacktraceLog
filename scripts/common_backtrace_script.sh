@@ -24,6 +24,8 @@
 #   sudo apt-get install jq
 #   sudo apt-get install xclip
 
+shopt -s extglob
+
 # Define the dialog exit status codes
 : ${DIALOG_OK=0}
 : ${DIALOG_CANCEL=1}
@@ -59,7 +61,7 @@ EOF
 
   or
 
-  $namesh <alternate search path for .elf files>
+  $namesh [alternate search path for .elf files]
 
   Presents a list of builds to select from. After selection, prompts
   for list of backtrace addresses
@@ -68,6 +70,18 @@ EOF
   elif [[ "idf_monitor" == "${1}" ]]; then
     cat <<EOF
   $namesh
+
+  Environment variables and assumed defaults:
+    ESP_USB_PORT="/dev/ttyUSB0"
+    ESP_PORT_SPEED="115200"
+    ESP_ELF_ARCHIVE_PATH unset
+
+  or
+
+  $namesh [-p <USB device> | --port <USB device> ] [-s <BPS rate> | --speed <BPS rate> ]
+
+  example:
+    $namesh -p /dev/ttyUSB0 -s 230400
 
 EOF
   fi
@@ -119,10 +133,9 @@ function do_idf_monitor() {
   #         --baud 115200
   #         --toolchain-prefix /path/to/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-
   #         /tmp/new-d1/new.ino.elf
-  ESP_TOOLCHAIN_ADDR2LINE=$( get_hardware_tool_path "addr2line" "${1}" )
+  ESP_TOOLCHAIN_ADDR2LINE=$( get_hardware_tool_path "addr2line" "${@: -1}" )
   ESP_TOOLCHAIN_PREFIX="${ESP_TOOLCHAIN_ADDR2LINE%addr2line}"
   IDF_MONITOR=$( realpath "${ESP_TOOLCHAIN_ADDR2LINE%/*}/../../idf_monitor.py" )
-  PORT_SPEED="115200"
 
   if [[ -x "${IDF_MONITOR}" && -f "${IDF_MONITOR}" ]]; then
     :
@@ -134,16 +147,65 @@ function do_idf_monitor() {
     return
   fi
 
-  if [[ -z $2 ]]; then
-    USB_PORT="/dev/ttyUSB0"
-  else
-    USB_PORT="$1"
-    shift
+  while [[ "-" = "${1:0:1}" ]]; do
+    # reminder "${1,,}" changes to all to lower case for simply match
+    case "${1,,}" in
+      -p?(=*)) [[ "$1" = "-p" ]] && shift;
+        ESP_USB_PORT="${1#-p=}"; shift; ;;
+      --usb-port?(=*)) [[ "$1" = "--usb-port" ]] && shift;
+        ESP_USB_PORT="${1#--usb-port=}"; shift; ;;
+      -s?(=*)) [[ "$1" = "-s" ]] && shift;
+        ESP_PORT_SPEED="${1#-s=}"; shift; ;;
+      --speed?(=*)) [[ "$1" = "--speed" ]] && shift;
+        ESP_PORT_SPEED="${1#--speed=}"; shift; ;;
+      # This is wrong! However, people think of it for BPS and will try it.
+      --baud?(=*)) [[ "$1" = "--baud" ]] && shift;
+        ESP_PORT_SPEED="${1#--baud=}"; shift; ;;
+      *) clear
+        echo -e "\nUnknown option: '${1} ${2}'\n"
+        print_help "idf_monitor"
+        read -n1 anykey
+        return; ;;
+    esac
+  done
+  : ${ESP_PORT_SPEED="115200"}
+  if [[ -z "${ESP_USB_PORT}" ]]; then
+    # best guess
+    if [[ -c "/dev/ttyUSB0" ]]; then
+      ESP_USB_PORT="/dev/ttyUSB0"
+    elif [[ ESP_USB_PORT="/dev/ttyUSB1" ]]; then
+      ESP_USB_PORT="/dev/ttyUSB1"
+    fi
+  fi
+  if [[ -c "${ESP_USB_PORT}" ]]; then
+    :
+  elif [[ "/dev/" != "${ESP_USB_PORT:0:5}" ]]; then
+    # autocorrect device name, more best guessing
+    TRY="/dev/${ESP_USB_PORT}"
+    TRY="${TRY//\/\//\/}"
+    if [[ -c "${TRY}" ]]; then
+      ESP_USB_PORT="${TRY}"
+    else
+      # we have come this far - try this
+      TRY="/dev/tty${ESP_USB_PORT^^}"
+      if [[ -c "${TRY}" ]]; then
+        ESP_USB_PORT="${TRY}"
+      fi
+    fi
   fi
 
+  if [[ -z "$1" ]]; then
+    print_help "idf_monitor"
+    return
+  fi
+
+  echo -e "\n$IDF_MONITOR\n  --port $ESP_USB_PORT\n  --baud $ESP_PORT_SPEED"
+  echo -e "  --toolchain-prefix $ESP_TOOLCHAIN_PREFIX\n  $1\n"
+  read -n1 anykey
+
   $IDF_MONITOR \
-    --port $USB_PORT \
-    --baud $PORT_SPEED \
+    --port $ESP_USB_PORT \
+    --baud $ESP_PORT_SPEED \
     --toolchain-prefix $ESP_TOOLCHAIN_PREFIX \
     $1
 }
@@ -441,13 +503,19 @@ function make_main_menu() {
   find_arduino_elfs '/tmp' 'arduino-sketch-*' |
     sed '/^.\/.git/d' |
     sed 's/"/\\"/g' >>$arduino_elfs_found
+  if [[ -n "${ESP_ELF_ARCHIVE_PATH}" ]]; then
+    find_arduino_elfs "${ESP_ELF_ARCHIVE_PATH}" |
+      sed '/^.\/.git/d' |
+      sed 's/"/\\"/g' >>$arduino_elfs_found
+  fi
   if [[ -n "${1}" ]]; then
     find_arduino_elfs "${1}" |
       sed '/^.\/.git/d' |
       sed 's/"/\\"/g' >>$arduino_elfs_found
   fi
   if [[ -s $arduino_elfs_found ]]; then
-    mv $arduino_elfs_found $temp_io
+    # mv $arduino_elfs_found $temp_io
+    sort -u <$arduino_elfs_found >$temp_io
     # build a dialog menu configuration file
     maxwidth=$( sed 's:.*/: :' $temp_io | wc -L | cut -d' ' -f1 )
     if [[ $maxwidth -gt 8 ]]; then
@@ -494,7 +562,7 @@ if [[ "--help" == "${1}" ]]; then
   exit 255
 elif make_main_menu "${1}"; then
   while :; do
-    do_main_dialog "${myname}"
+    do_main_dialog "${myname}" "$*"
     rc=$?
     if [[ $rc == $DIALOG_OK ]]; then
       :
@@ -518,6 +586,7 @@ elif make_main_menu "${1}"; then
     make_main_menu "${1}"
   done
   echo "$namesh "${cmd_args[@]}
+  [[ -n "${ESP_ELF_ARCHIVE_PATH}" ]] && echo "  ESP_ELF_ARCHIVE_PATH='${ESP_ELF_ARCHIVE_PATH}'"
   echo "  ESP_TOOLCHAIN_ADDR2LINE='${ESP_TOOLCHAIN_ADDR2LINE}'"
   printf '  %s\n' "${filehistory[@]}"
 else

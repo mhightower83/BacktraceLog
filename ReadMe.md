@@ -164,7 +164,7 @@ void __cyg_profile_func_exit(void *this_fn, void *call_site) {
 
 
 # Decoding backtrace log
-There are a few options shown below for decoding the backtrace log. Also, check the [`extras`](https://github.com/mhightower83/BacktraceLog/tree/master/extras) folder for a handy script that can wrap around the chore of running `addr2line` and `idf_monitor.py`.
+There are a few options shown below for decoding the backtrace log. Also, check the [`scripts`](https://github.com/mhightower83/BacktraceLog/tree/master/scripts) folder for a handy script that can wrap around the chore of running `addr2line` and `idf_monitor.py`.
 ## addr2line
 Included with the build tools for Arduino ESP8266.
 
