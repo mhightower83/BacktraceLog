@@ -201,7 +201,7 @@ function do_idf_monitor() {
 
   echo -e "\n$IDF_MONITOR\n  --port $ESP_USB_PORT\n  --baud $ESP_PORT_SPEED"
   echo -e "  --toolchain-prefix $ESP_TOOLCHAIN_PREFIX\n  $1\n"
-  read -n1 anykey
+  # read -n1 anykey
 
   $IDF_MONITOR \
     --port $ESP_USB_PORT \

@@ -56,6 +56,7 @@
 #include <user_interface.h>
 #include <umm_malloc/umm_malloc.h>
 #include <core_esp8266_non32xfer.h>
+#include <cont.h>
 #include "BacktraceLog.h"
 
 #if (ESP_DEBUG_BACKTRACELOG_MAX > 0)
@@ -310,6 +311,7 @@ void backtraceLog_clear(void) {
 void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t stack_end) {
     (void)stack_end;
     void *i_pc, *i_sp, *lr, *pc, *sp;
+    int repeat;
 
     if (NULL == pBT) {
         return;
@@ -337,13 +339,11 @@ void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t 
 
         lr = NULL;
         ETS_PRINTF2("\n\nBacktrace Crash Reporter - Exception space:\n ");
-        int repeat;
         do {
             i_pc = pc;
             i_sp = sp;
             ETS_PRINTF2(" %p:%p", i_pc, i_sp);
-            repeat = xt_retaddr_callee(i_pc, i_sp, lr, &pc, &sp);
-            lr = NULL;
+            repeat = xt_retaddr_callee(i_pc, i_sp, NULL, &pc, &sp);
         } while (repeat > 0);
         ETS_PRINTF2("\n");
         ETS_PRINTF2("  Frame: 0x%08x, Backtrace Frame: 0x%08x\n", (uintptr_t)frame, (uint32_t)i_sp);
@@ -376,19 +376,33 @@ void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t 
 
     ETS_PRINTF2("\n\nBacktrace Crash Reporter - User space:\n ");
     SHOW_PRINTF("\nBacktrace:");
-    int repeat;
     do {
-        i_pc = pc;
-        i_sp = sp;
         ETS_PRINTF2(" %p:%p", pc, sp);
         SHOW_PRINTF(" %p:%p", pc, sp);
         backtraceLog_write(pc);
-        repeat = xt_retaddr_callee(i_pc, i_sp, lr, &pc, &sp);
+        repeat = xt_retaddr_callee(pc, sp, lr, &pc, &sp);
         lr = NULL;
     } while(repeat);
+    if (g_pcont->pc_suspend) {
+        // Looks like we crashed while the Sketch was yielding.
+        // Finish traceback on the cont (loop_wrapper) stack.
+        ETS_PRINTF2(" 0:0");  // mark transistion
+        SHOW_PRINTF(" 0:0");
+        backtraceLog_write(NULL);
+        // Extract resume context to traceback - see cont_continue in cont.S
+        sp = (void*)((uintptr_t)g_pcont->sp_suspend + 24u);
+        pc = *(void**)((uintptr_t)g_pcont->sp_suspend + 16u);
+        do {
+            ETS_PRINTF2(" %p:%p", pc, sp);
+            SHOW_PRINTF(" %p:%p", pc, sp);
+            backtraceLog_write(pc);
+            repeat = xt_retaddr_callee(pc, sp, NULL, &pc, &sp);
+        } while(repeat);
+    }
+    backtraceLog_fin();
+
     ETS_PRINTF2("\n\n");
     SHOW_PRINTF("\n\n");
-    backtraceLog_fin();
 }
 
 

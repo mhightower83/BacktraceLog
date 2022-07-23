@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <esp8266_undocumented.h>
 #include <BacktraceLog.h>
+extern BacktraceLog backtraceLog;
 
 void crashMeIfYouCan(void)__attribute__((weak));
 int divideA_B(int a, int b);
@@ -107,6 +108,13 @@ void processKey(Print& out, int hotKey) {
       out.println(F("Note, compiler option '-finstrument-functions' will result in library divide 0 crash."));
       out.printf_P(PSTR("This should not print %d\n"), divideA_B_bp(1, 0));
       break;
+    case '1':
+      out.println(F("Crash while on the system stack."));
+      // Use cont_check to crash with panic from sys stack.
+      g_pcont->stack_guard1 = 0;
+      delay(1000);
+      out.println(F(":( no crash"));
+      break;
     case '\r':
       out.println();
     case '\n':
@@ -126,6 +134,7 @@ void processKey(Print& out, int hotKey) {
       out.println(F("  h    - Hardware WDT - looping with interrupts disabled"));
       out.println(F("  w    - Hardware WDT - calling a missing (weak) function."));
       out.println(F("  0    - Hardware WDT - a hard coded compiler breakpoint from a compile time detected divide by zero"));
+      out.println(F("  1    - Crash while on the system stack"));
       out.println(F("  b    - Hardware WDT - a forgotten hard coded 'break 1, 15;' and no GDB running."));
       out.println(F("  z    - Divide by zero, exception(0);"));
       out.println(F("  p    - panic();"));

@@ -42,6 +42,7 @@
 #include <Arduino.h>
 #include <hwdt_app_entry.h>
 #include <user_interface.h>
+#include <cont.h>
 #include <backtrace.h>
 #include <BacktraceLog.h>
 
@@ -108,9 +109,7 @@ extern "C" {
     if (REASON_WDT_RST == hwdt_info.reset_reason) {
       ETS_PRINTF("\n\nHWDT Backtrace Crash Report:\n");
 
-      void *i_pc, *i_sp;
       int repeat;
-
       void *pc = NULL, *sp = NULL;
       ssize_t level = hwdt_last_call.level;
       if (stack_sz < level) {
@@ -150,14 +149,26 @@ extern "C" {
       do {
         ETS_PRINTF(" %p:%p", pc, sp);
         backtraceLog_write(pc);
-        i_pc = pc;
-        i_sp = sp;
-        repeat = xt_retaddr_callee(i_pc, i_sp, NULL, &pc, &sp);
+        repeat = xt_retaddr_callee(pc, sp, NULL, &pc, &sp);
       } while(repeat);
+      if (g_pcont->pc_suspend) {
+          // Looks like we crashed while the Sketch was yielding.
+          // Finish traceback on the cont (loop_wrapper) stack.
+          ETS_PRINTF(" 0:0");  // mark transistion
+          backtraceLog_write(NULL);
+          // Extract resume context to traceback - see cont_continue in cont.S
+          sp = (void*)((uintptr_t)g_pcont->sp_suspend + 24u);
+          pc = *(void**)((uintptr_t)g_pcont->sp_suspend + 16u);
+          do {
+              ETS_PRINTF(" %p:%p", pc, sp);
+              backtraceLog_write(pc);
+              repeat = xt_retaddr_callee(pc, sp, NULL, &pc, &sp);
+          } while(repeat);
+      }
       backtraceLog_fin();
       ETS_PRINTF("\n\n");
-
     }
+
     // We must handle structure initialization here
     ets_memset(&hwdt_last_call, 0, sizeof(hwdt_last_call));
   }
