@@ -2,11 +2,12 @@
    Demo BacktraceLog from Arduino ESP8266 with a Hardware WDT reset.
 
    To use the Hardware WDT Reset stack dump tool, you can select HWDT or
-   HWDT_NOEXTRA4K from the Arduino IDE menu "Tools->Debug Level" before
-   building your sketch. Note, 'Tools->Debug port' selection is not needed or
-   referenced for printing the HWDT stack dump.
+   HWDT_NOEXTRA4K from the Arduino IDE menu "Tools->Debug Level" before building
+   your sketch. Note, for the HWDT reset stack dump tool 'Tools->Debug port' is
+   an indicator for debug support; however, the selected serial port is not used
+   by the tools. It will print to port Serial.
 
-   Add HwdLastCall.cpp to the Sketch folder and build.
+   Add `HwdLastCall.cpp` to the Sketch folder and build.
 
    When the ESP8266 restarts because of a Hardware WDT reset, the serial port
    speed defaults to 115200 bps. The HWDT stack dump will always print on port
@@ -16,7 +17,7 @@
    ESP8266 with and without a HWDT reset.
 
    Look for the "Backtrace: ..." line after the stack dump. Supply the hex values
-   that followed to the end of addr2line command line for a decode.
+   that followed to addr2line command line for a decode.
    See ReadMe.md for more info.
 */
 

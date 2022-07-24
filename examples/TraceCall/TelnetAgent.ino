@@ -1,4 +1,4 @@
-#ifdef USE_WIFI
+#if defined(USE_WIFI) && defined(USE_TELNET)
 
 #include <StreamString.h>
 
@@ -107,4 +107,4 @@ void handleTelnetAgent(void) {
   }
 }
 
-#endif // #ifdef USE_WIFI
+#endif // #if defined(USE_WIFI) && defined(USE_TELNET)

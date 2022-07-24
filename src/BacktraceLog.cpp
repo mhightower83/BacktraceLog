@@ -390,8 +390,8 @@ void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t 
         SHOW_PRINTF(" 0:0");
         backtraceLog_write(NULL);
         // Extract resume context to traceback - see cont_continue in cont.S
-        sp = (void*)((uintptr_t)g_pcont->sp_suspend + 24u);
-        pc = *(void**)((uintptr_t)g_pcont->sp_suspend + 16u);
+        sp = (void*)((uintptr_t)g_pcont->sp_suspend + 24u);   // a1
+        pc = *(void**)((uintptr_t)g_pcont->sp_suspend + 16u); // a0
         do {
             ETS_PRINTF2(" %p:%p", pc, sp);
             SHOW_PRINTF(" %p:%p", pc, sp);
@@ -580,9 +580,20 @@ void backtraceLog_begin(struct rst_info *reset_info) {
     set_pBT();
     if (NULL == pBT) return;
 
-    memcpy(&pBT->log.rst_info, reset_info, sizeof(struct rst_info));
+    if (reset_info) {
+        memcpy(&pBT->log.rst_info, reset_info, sizeof(struct rst_info));
+    } else {
+        memset(&pBT->log.rst_info, 0, sizeof(struct rst_info));
+    }
     pBT->log.crashCount++;
     pBT->log.count = 0;
+}
+
+// continue logging after a data break flag
+void backtraceLog_append(void) {
+    set_pBT();
+    if (NULL == pBT) return;
+    pBT->log.pc[pBT->log.count++] = 0;  // data break flag, separator or record marker
 }
 
 void backtraceLog_fin(void) {

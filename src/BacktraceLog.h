@@ -105,8 +105,19 @@ public:
 extern "C" void backtraceLog_report(int (*ets_printf_P)(const char *fmt, ...));
 extern "C" void backtraceLog_clear(void);
 
-// Only exposed to support hwdt_pre_sdk_init(). Otherwise, not needed.
-extern "C" void backtraceLog_begin(struct rst_info *reset_info);
+/*
+  Exposed to support hwdt_pre_sdk_init(). Otherwise, not needed?
+
+  Also may be useful as a deep dive debug tool to gather info on call path to a
+  given function call of concern. Use backtraceLog_write(NULL) data break
+  flag/separator. You may want to use larger than normal sizes for the log
+  buffer to catch more data. If you use backup RTC memory, be mindful of the
+  limit to total log buffer size which will occur with very large log buffers.
+
+  Not suitable for use within an ISR.
+*/
+extern "C" void backtraceLog_begin(struct rst_info *reset_info); // reset_info=NULL is acceptable
+extern "C" void backtraceLog_append(void);
 extern "C" void backtraceLog_fin(void);
 extern "C" void backtraceLog_write(void*pc);
 
@@ -137,6 +148,8 @@ void backtraceLog_clear(void) {}
 
 static inline __attribute__((always_inline))
 void backtraceLog_begin(struct rst_info *reset_info) { (void)reset_info; }
+static inline __attribute__((always_inline))
+void backtraceLog_append(void) {}
 static inline __attribute__((always_inline))
 void backtraceLog_fin(void) {}
 static inline __attribute__((always_inline))

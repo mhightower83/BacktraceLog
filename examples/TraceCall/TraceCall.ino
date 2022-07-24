@@ -1,15 +1,18 @@
 /*
-  A simple demo for BacktraceLog - Example show a few ways a sketch could crash
-  with the resulting backtrace report.
+  TraceCall
 
-  For this example using the compile option "-fno-optimize-sibling-calls",
-  will greatly improve the results from the "ESP Exception Decoder" and other
-  decoder utilities.
+  Use BacktraceLog to get a backtrace each time a specified function is called.
 
-  "-fno-optimize-sibling-calls"
-  Turns off "sibling and tail recursive calls" optimization.
-  Terminology link: https://stackoverflow.com/a/54939907
-  A deeper dive: https://www.drdobbs.com/tackling-c-tail-calls/184401756
+  In this example we backtrace lambda callbacks that were registered to
+    WiFi.onStationModeConnected
+    WiFi.onStationModeGotIP
+    WiFi.onStationModeDisconnected
+
+  How it would work in practice: From a function of concern, you would test
+  for some abnormal situation that you would like to know the call path that got
+  to here. You could save any details of the concern and finish with a call
+  trace. In this example you call `logCallTrace()` in module `LogCallTrace.ino`
+
 */
 
 #include <Arduino.h>
@@ -18,6 +21,11 @@
 #include <Esp.h>
 #include <BacktraceLog.h>
 BacktraceLog backtraceLog;
+
+// Make sure handler's never fall out of scope
+WiFiEventHandler handler1;
+WiFiEventHandler handler2;
+WiFiEventHandler handler3;
 
 #ifdef USE_WIFI
 #ifndef STASSID
@@ -31,17 +39,31 @@ const char* password = STAPSK;
 #endif
 
 void processKey(Print& out, int hotKey);
+void logCallTrace(void);
+
 
 void setup(void) {
   Serial.begin(115200);
   delay(200);    // This delay helps when using the 'Modified Serial monitor' otherwise it is not needed.
-  Serial.printf_P(PSTR("\r\n\r\nSimple IRAM Crash Log Backtrace Demo ...\r\n\r\n"));
-
-  backtraceLog.report(Serial);
+  Serial.printf_P(PSTR("\r\n\r\nExample TraceCall - demo function call traceback ...\r\n\r\n"));
   Serial.println();
 
 #ifdef USE_WIFI
   WiFi.mode(WIFI_STA);
+
+  handler1 = WiFi.onStationModeConnected([](WiFiEventStationModeConnected data) {
+    (void)data;
+    logCallTrace();
+  });
+  handler2 = WiFi.onStationModeGotIP([](WiFiEventStationModeGotIP data) {
+    (void)data;
+    logCallTrace();
+  });
+  handler3 = WiFi.onStationModeDisconnected([](WiFiEventStationModeDisconnected data) {
+    (void)data;
+    logCallTrace();
+  });
+
   WiFi.begin(ssid, password);
   while (WiFi.waitForConnectResult() != WL_CONNECTED) {
     Serial.println("WiFi Connection Failed! Rebooting in 5 secs. ...");
@@ -53,9 +75,12 @@ void setup(void) {
   Serial.println(WiFi.localIP());
   Serial.println();
   Serial.println();
-
+#endif
+#if defined(USE_WIFI) && defined(USE_TELNET)
   telnetAgentSetup();
 #endif
+
+  backtraceLog.report(Serial); // They need to see something
 }
 
 void loop(void) {
@@ -64,7 +89,7 @@ void loop(void) {
     processKey(Serial, hotKey);
   }
 
-#ifdef USE_WIFI
+#if defined(USE_WIFI) && defined(USE_TELNET)
   handleTelnetAgent();
 #endif
 }
