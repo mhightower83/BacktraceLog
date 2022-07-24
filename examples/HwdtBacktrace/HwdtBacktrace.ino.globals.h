@@ -1,4 +1,3 @@
-
 /*@create-file:build.opt@
 
 // Options for BacktraceLog
@@ -10,6 +9,11 @@
 
 
 /*@create-file:build.opt:debug@
+
+// -DESP_DEBUG_BACKTRACE_CPP=1
+-DDEBUG_ESP_HWDT_POST_REPORT_CB=hwdt_post_processing
+
+
 // For this block to work, you must have
 // `mkbuildoptglobals.extra_flags={build.debug_port}` in `platform.local.txt`
 // Or move contents to the block with the signature "@create-file:build.opt@"
@@ -18,7 +22,9 @@
 -finstrument-functions
 -finstrument-functions-exclude-function-list=app_entry,ets_intr_,ets_post,Cache_Read_Enable,non32xfer_exception_handler
 -finstrument-functions-exclude-file-list=umm_malloc,hwdt_app_entry,core_esp8266_postmortem,core_esp8266_app_entry_noextra4k,mmu_iram,backtrace,BacktraceLog,StackThunk
-
+//
+// Note well, `instrument-functions-exclude-file-list` substrings also match
+// directories as well as files.
 
 // Removing the optimization for "sibling and tail recursive calls" will clear
 // up some gaps in the stack decoder report. Preserves stack frames created at

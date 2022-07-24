@@ -108,6 +108,15 @@ Additional development debug prints. I may purged these at a later date.
 
 `-DESP_DEBUG_BACKTRACELOG_CPP=1` - Enable debug prints from `BacktraceLog.cpp`
 
+## `-DESP_SHARE_PREINIT__DEBUG_BACKTRACELOG="backtaceLog_preinit"`
+The BacktraceLog libary needs to be called as part of preinit. If you already have a `preinit()` function defined, add this define with an alternate function name for BacktraceLog to use and call that function from your `preinit()`.
+```cpp
+void preinit(void) {
+  ESP_SHARE_PREINIT__DEBUG_BACKTRACELOG();
+  ...
+}
+```
+
 # GCC build optimizations
 Helpful build options, you can add to your `<sketche name>.ino.globals.h` file. Note, these options may create new problems by increased code, stack size, and execution time.
 
@@ -134,6 +143,8 @@ https://gcc.gnu.org/onlinedocs/gcc/Instrumentation-Options.html
 There are two possible cases for using this.
 1. Primary use was for Hardware WDT Stack Dump, see ReadMe.md in `examples/HwdtBacktrace` for details.
 2. However, it may be useful in debugging where a crash occurs in an end/edge function. In these function the compiler does not need to save the return address on the stack, making it difficult to backtrace through the stack. Using `-finstrument-functions`, will necessitate all functions to call the profiler enter/exit functions. There may be other/better optimization changes to achieve this goal; however, I don't know of them. Adding `asm volatile("" ::: "a0", "memory");` at the top of the function is also another alternative for this issue.
+
+Note well, `instrument-functions-exclude-file-list` substrings will also match to directories.
 
 For case 2 to link properly, you will need to add something like this:
 ```
@@ -164,7 +175,7 @@ void __cyg_profile_func_exit(void *this_fn, void *call_site) {
 
 
 # Decoding backtrace log
-There are a few options shown below for decoding the backtrace log. Also, check the [`scripts`](https://github.com/mhightower83/BacktraceLog/tree/master/scripts) folder for a handy script that can wrap around the chore of running `addr2line` and `idf_monitor.py`.
+There are a few options shown below for decoding the backtrace log. Also, check the [`scripts`](https://github.com/mhightower83/BacktraceLog/tree/master/scripts) folder for a handy `bash` script that can wrap around the chore of locating the `.elf` file, the correct utilities for the build, and running `addr2line` or `idf_monitor.py`.
 ## addr2line
 Included with the build tools for Arduino ESP8266.
 

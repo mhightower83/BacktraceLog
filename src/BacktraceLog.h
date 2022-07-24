@@ -44,14 +44,14 @@
 #endif
 
 /*
- * If you already are using preinit, define ESP_DEBUG_BACKTRACELOG_PREINIT
+ * If you already are using preinit, define ESP_SHARE_PREINIT__DEBUG_BACKTRACELOG
  * with a replacment name for BacktraceLog's preinit() and call it from your
  * preinit();
  */
-#ifndef ESP_DEBUG_BACKTRACELOG_PREINIT
-#define ESP_DEBUG_BACKTRACELOG_PREINIT preinit
+#ifndef ESP_SHARE_PREINIT__DEBUG_BACKTRACELOG
+#define ESP_SHARE_PREINIT__DEBUG_BACKTRACELOG preinit
 #endif
-extern "C" void ESP_DEBUG_BACKTRACELOG_PREINIT(void);
+extern "C" void ESP_SHARE_PREINIT__DEBUG_BACKTRACELOG(void);
 
 struct BACKTRACELOG_MEM_INFO {
     void *addr;

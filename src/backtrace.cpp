@@ -39,6 +39,14 @@
 
 #include "backtrace.h"
 
+#ifndef BACKTRACE_MAX_RETRY
+#define BACKTRACE_MAX_RETRY 3
+#endif
+
+#ifndef BACKTRACE_MAX_LOOKBACK
+#define BACKTRACE_MAX_LOOKBACK 512
+#endif
+
 #ifdef ESP_DEBUG_BACKTRACE_CPP
 #define ETS_PRINTF ets_uart_printf
 #else
@@ -175,117 +183,132 @@ int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void
     uint32_t off = 0;
     const uint32_t text_size = prev_text_size(pc);
 
-    // Scan backward 1 byte at a time looking for a stack reserve or ret.n
-    // This requires special handling to read IRAM/IROM/FLASH 1 byte at a time.
-    for (; off < text_size; off++) {
-        // What about 12d1xx   ADDMI a1, a1, -32768..32512 (-128..127 shifted by 8)?
-        // Not likely to be useful. This is mostly used at the start of an
-        // Exception frame. No need to see what an Interrupt interrupted. More
-        // interesting to see what the interrupt did to cause an exception.
-        // When we need to look behind an Exception frame, those start point
-        // values are passed in.
-        uint8_t *pb = (uint8_t *)(pc - off);
-        //
-        // 12 c1 xx   ADDI a1, a1, -128..127
-        //
-        if (idx(pb, 0) == 0x12 && idx(pb, 1) == 0xc1) {
-            const int stk_size = sidx(pb, 2); //((int8_t *)pb)[2];
+    // The question is how agressively should we keep looking.
+    // For now, keep searching until both BACKTRACE_MAX_RETRY and
+    // BACKTRACE_MAX_LOOKBACK are exhaused.  BACKTRACE_MAX_LOOKBACK defaults to
+    // 512 bytes and BACKTRACE_MAX_RETRY to 1.
+    for (size_t retry = 0;
+        ((retry < BACKTRACE_MAX_RETRY) || (off < BACKTRACE_MAX_LOOKBACK)) &&
+          (off < text_size) && pc;
+        retry++, off++)
+    {
+        pc = (uint32_t)i_pc;
+        sp = (uint32_t)i_sp;
 
-            // Skip ADDIs that are clearing previous stack usage or not a multiple of 16.
-            if (stk_size >= 0 || stk_size % 16 != 0) {
-                continue;
-            }
-            // Negative stack size, stack space creation/reservation and multiple of 16
+        // Scan backward 1 byte at a time looking for a stack reserve or ret.n
+        // This requires special handling to read IRAM/IROM/FLASH 1 byte at a time.
+        for (; off < text_size; off++) {
+            // What about 12d1xx   ADDMI a1, a1, -32768..32512 (-128..127 shifted by 8)?
+            // Not likely to be useful. This is mostly used at the start of an
+            // Exception frame. No need to see what an Interrupt interrupted. More
+            // interesting to see what the interrupt did to cause an exception.
+            // When we need to look behind an Exception frame, those start point
+            // values are passed in.
+            uint8_t *pb = (uint8_t *)(pc - off);
+            //
+            // 12 c1 xx   ADDI a1, a1, -128..127
+            //
+            if (idx(pb, 0) == 0x12 && idx(pb, 1) == 0xc1) {
+                const int stk_size = sidx(pb, 2); //((int8_t *)pb)[2];
 
-            if (off <= 3) {
-                pc = lr;
-                ETS_PRINTF("\noff <= 3\n\n");
+                // Skip ADDIs that are clearing previous stack usage or not a multiple of 16.
+                if (stk_size >= 0 || stk_size % 16 != 0) {
+                    continue;
+                }
+                // Negative stack size, stack space creation/reservation and multiple of 16
 
-            } else {
+                if (off <= 3) {
+                    pc = lr;
+                    ETS_PRINTF("\noff <= 3\n");
+
+                } else {
+                    int a0_offset = find_s32i_a0_a1(pc, off);
+                    if (a0_offset < 0 || a0_offset >= -stk_size) {
+                        continue;
+                    } else {
+                        uint32_t *sp_a0 = (uint32_t *)((uintptr_t)sp + (uintptr_t)a0_offset);
+                        ETS_PRINTF("\npc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d, %p(0x%08x)\n", pc, sp, stk_size, a0_offset, sp_a0, *sp_a0);
+                        pc = *sp_a0;
+                    }
+                }
+
+                // Get back to the caller's stack
+                sp -= stk_size;
+
+                break;
+            } else
+            // The orignal code here had three bugs:
+            //  1. It assumed a9 would be the only register used for setting the
+            //     stack size.
+            //  2. It assumed the SUB instruction would be imediately after the
+            //     MOVI instruction.
+            //  3. stk_size calculation needed a shift 8 left for the high 4 bits.
+            //     This test would never match up to any code in the Boot ROM
+            //
+            // Solution to use:
+            // Look for MOVI a?, -2048..2047
+            // On match search forward through 32 bytes, for SUB a1, a1, a?
+            // I think this will at least work for the Boot ROM code
+            //
+            // r2 Ax yz   MOVI r, -2048..2047
+            //
+            if ((idx(pb, 0) & 0x0F) == 0x02 && (idx(pb, 1) & 0xF0) == 0xa0) {
+                int stk_size = ((idx(pb, 1) & 0x0F)<<8) + idx(pb, 2);
+                if (!stk_size || stk_size >= 2048) {
+                    // Zero or negative keep looking
+                    continue;
+                }
+                //
+                // r0 11 c0   SUB a1, a1, r
+                //
+                bool found = false;
+                for (uint8_t *psub = &pb[3];
+                     psub < &pb[32];            // Expect a match within 32 bytes
+                     psub = (uint8_t*)((idx(psub, 0) & 0x80) ? ((uintptr_t)psub + 2) : ((uintptr_t)psub + 3))) {
+                    if ((idx(psub, 0) & 0x0F) == 0x00 &&
+                         idx(psub, 1) == 0x11 &&
+                         idx(psub, 2) == 0xc0 &&
+                        (idx(pb, 0) & 0xF0) == (idx(psub, 0) & 0xF0)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    continue;
+                }
+
                 int a0_offset = find_s32i_a0_a1(pc, off);
-                ETS_PRINTF("\npc: 0x%08X, stk_size: %d, a0_offset: %d, 0x%08X\n\n", pc, stk_size, a0_offset, *(uint32_t *)(sp + a0_offset));
-                if (a0_offset < 0 || a0_offset >= -stk_size) {
+                if (a0_offset < 0 || a0_offset >= stk_size) {
                     continue;
                 } else {
                     pc = *(uint32_t *)(sp + a0_offset);
                 }
-            }
 
-            // Get back to the caller's stack
-            sp -= stk_size;
+                sp += stk_size;
 
-            break;
-        } else
-        // The orignal code here had three bugs:
-        //  1. It assumed a9 would be the only register used for setting the
-        //     stack size.
-        //  2. It assumed the SUB instruction would be imediately after the
-        //     MOVI instruction.
-        //  3. stk_size calculation needed a shift 8 left for the high 4 bits.
-        //     This test would never match up to any code in the Boot ROM
-        //
-        // Solution to use:
-        // Look for MOVI a?, -2048..2047
-        // On match search forward through 32 bytes, for SUB a1, a1, a?
-        // I think this will at least work for the Boot ROM code
-        //
-        // r2 Ax yz   MOVI r, -2048..2047
-        //
-        if ((idx(pb, 0) & 0x0F) == 0x02 && (idx(pb, 1) & 0xF0) == 0xa0) {
-            int stk_size = ((idx(pb, 1) & 0x0F)<<8) + idx(pb, 2);
-            if (!stk_size || stk_size >= 2048) {
-                // Zero or negative keep looking
-                continue;
-            }
+                break;
+            } else
+            // Most fail to find, land here.
             //
-            // r0 11 c0   SUB a1, a1, r
+            // 0d f0      	RET.N
             //
-            bool found = false;
-            for (uint8_t *psub = &pb[3];
-                 psub < &pb[32];            // Expect a match within 32 bytes
-                 psub = (uint8_t*)((idx(psub, 0) & 0x80) ? ((uintptr_t)psub + 2) : ((uintptr_t)psub + 3))) {
-                if ((idx(psub, 0) & 0x0F) == 0x00 &&
-                     idx(psub, 1) == 0x11 &&
-                     idx(psub, 2) == 0xc0 &&
-                    (idx(pb, 0) & 0xF0) == (idx(psub, 0) & 0xF0)) {
-                    found = true;
+            if (idx(pb, 0) == 0x0d && idx(pb, 1) == 0xf0) {
+                ETS_PRINTF("\nRET.N pb: 0x%08X\n", (uint32_t)pb);
+
+                if (!verify_path_ret_to_pc(pc, off)) {
+                    continue;
+                }
+
+                if (off <= 3) {
+                    pc = lr;
                     break;
                 }
-            }
-            if (!found) {
+
                 continue;
             }
-
-            int a0_offset = find_s32i_a0_a1(pc, off);
-            if (a0_offset < 0 || a0_offset >= stk_size) {
-                continue;
-            } else {
-                pc = *(uint32_t *)(sp + a0_offset);
-            }
-
-            sp += stk_size;
-
-            break;
-        } else
-        // Most fail to finds end here. The question is how agressively should
-        // we keep looking. For now limit to 256 bytes back from the start "pc".
-        //
-        // 0d f0      	RET.N
-        //
-        if (idx(pb, 0) == 0x0d && idx(pb, 1) == 0xf0) {
-            ETS_PRINTF("\nRET.N pb: 0x%08X\n\n", (uint32_t)pb);
-
-            if (!verify_path_ret_to_pc(pc, off)) {
-                continue;
-            }
-
-            if (off <= 3 || off > 256) {
-                pc = lr;
-                break;
-            }
-
-            continue;
         }
+        if (xt_pc_is_valid((void *)pc))
+            break;
     }
 
     //

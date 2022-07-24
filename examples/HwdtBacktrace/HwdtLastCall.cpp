@@ -46,8 +46,32 @@
 #include <backtrace.h>
 #include <BacktraceLog.h>
 
+/*
+  DEBUG_ESP_HWDT_POST_REPORT_CB is not yet supported.
+  It requires a PR to Arduino ESP8266.
+*/
+#ifdef DEBUG_ESP_HWDT_POST_REPORT_CB
+#define ADD_SYS_STACK_E000_CHECK 1
+#else
+#define DEBUG_ESP_HWDT_POST_REPORT_CB hwdt_pre_sdk_init
+#define ADD_SYS_STACK_E000_CHECK 0
+#endif
+extern "C" void DEBUG_ESP_HWDT_POST_REPORT_CB(void) __attribute__((no_instrument_function));
+
+
 #ifndef ALWAYS_INLINE
 #define ALWAYS_INLINE inline __attribute__((always_inline))
+#endif
+
+#define SYS_STACK_E000     ((uint32_t *)0x3fffe000UL)
+#ifndef CONT_STACKGUARD
+#define CONT_STACKGUARD 0xfeefeffe
+#endif
+
+#if ADD_SYS_STACK_E000_CHECK
+#define RTC_SYS         ((volatile uint32_t*)0x60001100UL)
+extern "C" void ets_wdt_enable(void);
+static bool bypass __attribute__((section(".noinit")));
 #endif
 
 extern "C" {
@@ -80,14 +104,58 @@ extern "C" {
   extern int umm_info_safe_printf_P(const char *fmt, ...);
   #define ETS_PRINTF_P(fmt, ...) umm_info_safe_printf_P(fmt, ##__VA_ARGS__)
   #define ETS_PRINTF(fmt, ...) ETS_PRINTF_P(PSTR(fmt), ##__VA_ARGS__)
+#ifdef DEBUG_HWDTLASTCALL_CPP
+  #define ETS_PRINTF2(fmt, ...) ETS_PRINTF_P(PSTR(fmt), ##__VA_ARGS__)
+#else
+  #define ETS_PRINTF2(fmt, ...)
+#endif
 
-  void hwdt_pre_sdk_init(void) __attribute__((no_instrument_function));
+#if ADD_SYS_STACK_E000_CHECK
+/*
+ *  Fill the SDK stack area with CONT_STACKGUARD so we can detect used space
+ *  and overflow.
+ */
+static size_t paint_sys_stack(void) {
+    // size_t this_mutch = (uintptr_t)ROM_STACK - (uintptr_t)SYS_STACK;
+    size_t this_mutch;
+    asm volatile("mov %[sp], a1\n\t":[sp]"=r"(this_mutch)::"memory");
+    this_mutch -= (uintptr_t)SYS_STACK_E000;
+    this_mutch /= sizeof(uint32_t);
+    for (size_t i = 0; i < this_mutch; i++) {
+        SYS_STACK_E000[i] = CONT_STACKGUARD;
+    }
+    return this_mutch * sizeof(uint32_t);
+}
+
+static size_t check_paint_sys_stack(void) {
+    size_t this_mutch;
+    asm volatile("mov %[sp], a1\n\t":[sp]"=r"(this_mutch)::"memory");
+    this_mutch -= (uintptr_t)SYS_STACK_E000;
+    this_mutch /= sizeof(uint32_t);
+    for (size_t i = 0; i < this_mutch; i++) {
+        if (SYS_STACK_E000[i] != CONT_STACKGUARD) {
+            this_mutch = i;
+            break;
+        }
+    }
+    return this_mutch * sizeof(uint32_t);
+}
+#endif
+
   /*
     Notes:
 
-    hwdt_pre_sdk_init() is called from HWDT Stack Dump before starting the SDK
-    and before the Heap is available(); however, a 16K ICACHE is online.
-    The UART is enabled and the Serial speed has been preset.
+    DEBUG_ESP_HWDT_POST_REPORT_CB() is called early with the smaller zeroed out
+    part of the system stack, size ~2800 bytes. Most of the original system
+    stack is available.
+
+    hwdt_pre_sdk_init() is called later with the system stack any interesting
+    data will be overwritten.
+
+    hwdt_pre_sdk_init()/DEBUG_ESP_HWDT_POST_REPORT_CB is called from HWDT Stack
+    Dump before starting the SDK and before the Heap is available(); however, a
+    16K ICACHE is online. The UART is enabled and the Serial speed has been
+    preset.
 
     Outside the scope of this example; however, other diagnostic could be
     devised and launched from this context.
@@ -101,25 +169,41 @@ extern "C" {
 
     The reset reason was determinted by HWDT Stack Dump not the SDK. On
     rare occations they can differ. When the SDK crashes at startup before
-    the timer tick for the Soft WDT, RTC[0] is still set to Hardware WDT and
+    the timer tick for the Soft WDT, RTC_SYS[0] is still set to Hardware WDT and
     falsely reported on the subsequent reboot. HWDT Stack Dump gets this case
     right.
   */
-  void hwdt_pre_sdk_init(void) {
+  void hwdt_post_processing(void) {
+    // *SYS_STACK_E000 = CONT_STACKGUARD;
+#if ADD_SYS_STACK_E000_CHECK
+    if (REASON_DEFAULT_RST == hwdt_info.reset_reason ||
+        REASON_EXT_SYS_RST == hwdt_info.reset_reason ||
+        REASON_DEEP_SLEEP_AWAKE == hwdt_info.reset_reason) {
+        bypass = false;
+    } else if (bypass) {
+        bypass = false;
+        return;
+    }
+#endif
+
     if (REASON_WDT_RST == hwdt_info.reset_reason) {
       ETS_PRINTF("\n\nHWDT Backtrace Crash Report:\n");
-
+#if ADD_SYS_STACK_E000_CHECK
+      ssize_t stack_free = paint_sys_stack();
+      ETS_PRINTF2("  Available stack space for 'hwdt_post_processing' callback: %u bytes.\n", stack_free);
+#endif
       int repeat;
       void *pc = NULL, *sp = NULL;
       ssize_t level = hwdt_last_call.level;
       if (stack_sz < level) {
         ETS_PRINTF("  level(%d) exceeded PC:SP tracker stack size(%d)\n", level, stack_sz);
         level = stack_sz; // Show what we can
-      } else if (0 >= level) {
-        level = -1;
+      } else if (0 > level) {
         ETS_PRINTF("  Internal error: Bad level(%d) for PC:SP tracker stack\n", level);
+        level = -1;
       }
-      if (stack_sz >= level) {
+      if (stack_sz >= level && 0 <= level) {
+        ETS_PRINTF2("  Internal state: level(%d) for PC:SP tracker stack\n", level);
         /*
           Reach for the just released stack-frame - it provides a better
           backtrace start point. One level back should be safe, most of the time.
@@ -128,16 +212,19 @@ extern "C" {
         */
         pc = hwdt_last_call.last[level].pc;
         sp = hwdt_last_call.last[level].sp;
-        level--;
-        do {
-          if (sp == hwdt_last_call.last[level].sp) {
-            level++;
-            break;
-          }
-          repeat = xt_retaddr_callee(pc, sp, NULL, &pc, &sp);
-        } while(repeat);
-        pc = hwdt_last_call.last[level].pc;
-        sp = hwdt_last_call.last[level].sp;
+        if (level > 0) {
+          level--;
+          int limiter = 16;
+          do {
+            if (sp == hwdt_last_call.last[level].sp) {
+              level++;
+              break;
+            }
+            repeat = xt_retaddr_callee(pc, sp, NULL, &pc, &sp);
+          } while(repeat && --limiter);
+          pc = hwdt_last_call.last[level].pc;
+          sp = hwdt_last_call.last[level].sp;
+        }
       }
 
       struct rst_info reset_info;
@@ -146,11 +233,13 @@ extern "C" {
       backtraceLog_begin(&reset_info);
 
       ETS_PRINTF("  Backtrace:");
+      int limiter = 64;
       do {
         ETS_PRINTF(" %p:%p", pc, sp);
         backtraceLog_write(pc);
         repeat = xt_retaddr_callee(pc, sp, NULL, &pc, &sp);
-      } while(repeat);
+      } while(repeat && --limiter);
+
       if (g_pcont->pc_suspend) {
           // Looks like we crashed while the Sketch was yielding.
           // Finish traceback on the cont (loop_wrapper) stack.
@@ -167,10 +256,26 @@ extern "C" {
       }
       backtraceLog_fin();
       ETS_PRINTF("\n\n");
+
+#if ADD_SYS_STACK_E000_CHECK
+      stack_free -= check_paint_sys_stack();
+      ETS_PRINTF2("  Stack space used: %d bytes.\n", stack_free);
+      if (0 < stack_free) {
+          ETS_PRINTF("  Stack overflow during 'hwdt_post_processing' callback.\n");
+          // TODO add code to reboot and not run hwdt_post_processing
+          // Yikes, how do I do a clean restart from here??
+          // Not great; however, at least it doesn't loop forever.
+          RTC_SYS[0] = 0;
+          bypass = true;
+          ets_wdt_enable();
+          while(true);
+      }
+#endif
     }
 
     // We must handle structure initialization here
     ets_memset(&hwdt_last_call, 0, sizeof(hwdt_last_call));
+    bypass = false;
   }
 
   ////////////////////////////////////////////////////////////////////////////////

@@ -1,13 +1,34 @@
 #include <Arduino.h>
 #include <esp8266_undocumented.h>
+#include <user_interface.h>
+#include <os_type.h>
 #include <BacktraceLog.h>
 extern BacktraceLog backtraceLog;
 
 void crashMeIfYouCan(void)__attribute__((weak));
 int divideA_B(int a, int b);
 int divideA_B_bp(int a, int b);
+extern "C" void hwdt_crash_on_system_stack(os_event_t *e);
+extern "C" void exc_crash_on_system_stack(os_event_t *e);
 
 int* nullPointer = NULL;
+
+constexpr size_t crash_event_que_depth = 2;
+os_event_t hwdt_crash_event_que[crash_event_que_depth];
+os_event_t exc_crash_event_que[crash_event_que_depth];
+
+void hwdt_crash_on_system_stack(os_event_t *e) {
+    (void)e;
+    // I don't know if this is the right way to stop a task
+    // system_os_task(NULL, USER_TASK_PRIO_2, hwdt_crash_event_que, crash_event_que_depth);
+    ets_uart_printf("\nHWDT in ~7 seconds ...\n");
+    asm volatile("break 1, 15;");
+}
+
+void exc_crash_on_system_stack(os_event_t *e) {
+    (void)e;
+    asm volatile("ill;");
+}
 
 void processKey(Print& out, int hotKey) {
   switch (hotKey) {
@@ -109,9 +130,18 @@ void processKey(Print& out, int hotKey) {
       out.printf_P(PSTR("This should not print %d\n"), divideA_B_bp(1, 0));
       break;
     case '1':
-      out.println(F("Crash while on the system stack."));
-      // Use cont_check to crash with panic from sys stack.
-      g_pcont->stack_guard1 = 0;
+      out.println(F("Using 'system_os_task/post' to execute 'ill' instruction while on the system stack."));
+      system_os_task(exc_crash_on_system_stack, USER_TASK_PRIO_1, exc_crash_event_que, crash_event_que_depth);
+      system_os_post(USER_TASK_PRIO_1, (os_signal_t)42, (os_param_t)0);
+      out.println(F("'system_os_post' has returned. Any time now!"));
+      delay(1000);
+      out.println(F(":( no crash"));
+      break;
+    case '2':
+      out.println(F("Using 'system_os_task/post' to generate a HWDT crash via 'break 1, 15;' while on the system stack."));
+      system_os_task(hwdt_crash_on_system_stack, USER_TASK_PRIO_2, hwdt_crash_event_que, crash_event_que_depth);
+      system_os_post(USER_TASK_PRIO_2, (os_signal_t)42, (os_param_t)0);
+      out.println(F("'system_os_post' has returned. Any time now!"));
       delay(1000);
       out.println(F(":( no crash"));
       break;
@@ -134,7 +164,8 @@ void processKey(Print& out, int hotKey) {
       out.println(F("  h    - Hardware WDT - looping with interrupts disabled"));
       out.println(F("  w    - Hardware WDT - calling a missing (weak) function."));
       out.println(F("  0    - Hardware WDT - a hard coded compiler breakpoint from a compile time detected divide by zero"));
-      out.println(F("  1    - Crash while on the system stack"));
+      out.println(F("  1    - 'ill' instruction exception, while on the system stack"));
+      out.println(F("  2    - Hardware WDT - Crash while on the system stack using 'break 1, 15;'"));
       out.println(F("  b    - Hardware WDT - a forgotten hard coded 'break 1, 15;' and no GDB running."));
       out.println(F("  z    - Divide by zero, exception(0);"));
       out.println(F("  p    - panic();"));

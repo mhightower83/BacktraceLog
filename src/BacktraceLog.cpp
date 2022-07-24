@@ -222,7 +222,7 @@ int umm_info_safe_printf_P(const char *fmt, ...) __attribute__((format(printf, 1
 #if defined(ESP_DEBUG_BACKTRACELOG_CPP)
 #define ETS_PRINTF2 ETS_PRINTF
 #define SHOW_PRINTF(fmt, ...)
-#elif defined(ESP_DEBUG_BACKTRACELOG_SHOW)
+#elif ESP_DEBUG_BACKTRACELOG_SHOW
 #define ETS_PRINTF2(fmt, ...)
 #define SHOW_PRINTF ETS_PRINTF
 #else
@@ -442,10 +442,14 @@ static inline void rtc_check_init(union BacktraceLogUnion *pBT) {
 }
 #endif
 
-/////////////////////////////////////////////////////////////////////////////
-//  For the case of an IRAM log buffer, initialization occurs through:
-//    * umm_init_iram() - MMU_IRAM_HEAP
-//    * preinit()       - no MMU_IRAM_HEAP
+////////////////////////////////////////////////////////////////////////////////
+//  Log Buffer init can take - one of three paths and can be in DRAM or IRAM.
+//    1) IRAM unmanaged. Carveout handled at preinit(). If you have multiple data
+//       uses for IRAM, I suggest using the method illustrated here for carving
+//       up left over IRAM memory.
+//    2) IRAM along side MMU_IRAM_HEAP. Carveout handled in umm_init_iram()
+//    3) DRAM is the simplest and can be handle as preinit()
+//       (TODO maybe - or class instantiation)
 //
 #if ESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER
 /*
@@ -521,7 +525,7 @@ void umm_init_iram(void) {
 
 #else // #if defined(MMU_IRAM_HEAP)
 // Nobody is using left over IRAM, grab a block after _text_end.
-void ESP_DEBUG_BACKTRACELOG_PREINIT(void) {
+void ESP_SHARE_PREINIT__DEBUG_BACKTRACELOG(void) {
 #ifdef ESP_DEBUG_BACKTRACELOG_IRAM_RESERVE_CB
     struct BACKTRACELOG_MEM_INFO iram_buffer = set_pBT();
     // If you had another structure to allocate, iram_buffer has the next
@@ -567,15 +571,16 @@ static struct BACKTRACELOG_MEM_INFO set_pBT(void) {
     return empty;
 }
 
-void ESP_DEBUG_BACKTRACELOG_PREINIT(void) {
+void ESP_SHARE_PREINIT__DEBUG_BACKTRACELOG(void) {  // void preinit(void);
     (void)set_pBT();
 }
 #endif //#if ESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER
 
-/*
-  May be called as a result of HWDT callback hwdt_pre_sdk_init().
-  set_pBT must handle duplicate calls
-*/
+///////////////////////////////////////////////////////////////////////////////
+//
+//  May be called as a result of HWDT callback hwdt_pre_sdk_init().
+//  set_pBT must handle duplicate calls
+//
 void backtraceLog_begin(struct rst_info *reset_info) {
     set_pBT();
     if (NULL == pBT) return;
