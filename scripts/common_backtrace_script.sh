@@ -40,6 +40,9 @@ if [[ ! -s "$DIALOGRC" ]]; then
   unset DIALOGRC
 fi
 
+: ${ESP8266_BOOTROM_LISTING=~/Arduino/libraries/Backtrace_Log/scripts/boot.txt}
+ESP8266_BOOTROM_LISTING=$( realpath $ESP8266_BOOTROM_LISTING )
+
 namesh="${0##*/}"
 myname="${namesh%.*}"
 cmd_args="$@"
@@ -75,6 +78,7 @@ EOF
     ESP_USB_PORT="/dev/ttyUSB0"
     ESP_PORT_SPEED="115200"
     ESP_ELF_ARCHIVE_PATH unset
+    ESP8266_BOOTROM_LISTING=~/Arduino/libraries/Backtrace_Log/scripts/boot.txt
 
   or
 
@@ -256,25 +260,68 @@ function do_viewer_dialog() {
   entry=$(sed -n "${menu_viewer_idx}p" $arduino_elfs_found)
 
   echo -e "\nYou selected:\n  '$entry'\n"
-  jumpto=$( echo "${entry##*:}" | cut -d' ' -f1 )
-
-  if [[ 0 -eq $jumpto || -z "$jumpto" ]]; then
-    file=""
+  LINE_NO=${entry##*:}
+  ZXADDR=${entry%%:*}
+  ADDR=${ZXADDR#0x}
+  if [[ "0x" == "${ZXADDR:0:2}" ]]; then
+    FILE_NAME=${entry#*: }
   else
-    file=$( echo "${entry#*: }" | sed 's|^.* at /|/|' | cut -d':' -f1 )
-    file=$( realpath "$file" )
+    ZXADDR=""
+    ADDR=""
+    FILE_NAME=${entry#*) }
   fi
-  # keep for later debug
-  # clear
-  # echo "$jumpto '$file'"
-  # read -n1 anykey
+  if [[ "$FILE_NAME" != "${FILE_NAME#* ?? ??:0}" ]]; then
+    FILE_NAME=""
+    FUNC_NAME=""
+  elif [[ "$FILE_NAME" != "${FILE_NAME#* at ??:?}" ]]; then
+    FUNC_NAME="${FILE_NAME%% at ??:?*}"
+    FUNC_NAME="${FUNC_NAME%%(*}"
+    FILE_NAME=""
+    LINE_NO=0
+  else
+    FUNC_NAME="${FILE_NAME%% at /*}"
+    FUNC_NAME="${FUNC_NAME%%\(*}"
+    FILE_NAME="/${FILE_NAME#* at /}"
+    FILE_NAME="${FILE_NAME%:*}"
+    # echo "FUNC_NAME='$FUNC_NAME'"
+    # echo "FILE_NAME='$FILE_NAME'"
+    # read -n1 anyway
+  fi
+  [[ -n "${FILE_NAME}" ]] && FILE_NAME=$( realpath "$FILE_NAME" )
+  PATTERN=""
 
-  if [[ $DIALOG_OK == $rc && 0 -ne $jumpto ]]; then
-    add2filehistory "$file"
-    [[ -n $jumpto && 1 -ne $jumpto ]] && jumpto=$(( $jumpto - 1 ))
-    less +$jumpto -N -i "$file"
-    # read -n1 anykey
-    lastfile="$file"
+  # if [[ $LINE_NO != ?(-)+([0-9]) ]]; then
+  #   LINE_NO=0
+  # fi
+
+  if [[ 0 -eq $LINE_NO ]]; then
+    if [[ "0x4000" == "${ZXADDR:0:6}" ]]; then
+      FILE_NAME="${ESP8266_BOOTROM_LISTING}"
+      if [[ -f "$FILE_NAME" ]]; then
+        LINE_NO=$( grep -nom1 "${ADDR}" $FILE_NAME )
+        LINE_NO=${LINE_NO%%:*}
+        PATTERN="-p${ADDR}:"
+      else
+        FILE_NAME=""
+        echo -e "\nBoot ROM listing file missing\nSee ReadMe.md\n"
+        read -n1 anykey
+      fi
+    fi
+  fi
+
+  if [[ $DIALOG_OK == $rc ]]; then
+    if [[ 0 -eq $LINE_NO ]]; then
+      if [[ -n "$FUNC_NAME" ]]; then
+        do_unasm --lite-up "<${FUNC_NAME}>:|${ADDR}:" "--disassemble=$FUNC_NAME" $1
+      else
+        do_unasm --lite-up "${ADDR}:" $1
+      fi
+    elif [[ -n "$FILE_NAME" ]]; then
+      add2filehistory "$FILE_NAME"
+      [[ -n $LINE_NO && 1 -ne $LINE_NO ]] && LINE_NO=$(( $LINE_NO - 1 ))
+      less +$LINE_NO -N -i ${PATTERN} "$FILE_NAME"
+      lastfile="$FILE_NAME"
+    fi
   elif [[ $rc == $DIALOG_EXTRA ]]; then
     cat "$addr2line_output" | xclip -selection clipboard
   fi
@@ -299,9 +346,9 @@ function make_file_menu() {
 
 function do_file_viewer() {
   rc=255
-  if make_file_menu $1; then
+  if make_file_menu $2; then
     while :; do
-      do_viewer_dialog
+      do_viewer_dialog $1
       rc=$?
       if [[ $rc == $DIALOG_OK ]]; then     # 0 == OK
         :
@@ -354,11 +401,17 @@ function do_unasm() {
     ADDR="--start-address=0x${1}"
     PATTERN="-p${1}"
     shift
+  elif [[ "--lite-up" == "${1}" ]]; then
+    ADDR=""
+    PATTERN="-p${2}"
+    shift 2
   else
     ADDR=""
     PATTERN=""
   fi
   esp_toolchain_objdump=$( get_hardware_tool_path "objdump" "${@: -1}" )
+  # echo ${esp_toolchain_objdump} -d ${ADDR} $*
+  # read -n1 anyway
   ${esp_toolchain_objdump} -d ${ADDR} $* | less -i ${PATTERN}
 }
 
@@ -451,7 +504,7 @@ function do_main_dialog() {
     add2filehistory "$file"
     if [[ "addr2line" == "${myname}" ]]; then
       do_addr2line "$file" $*
-      do_file_viewer $addr2line_output
+      do_file_viewer "$file" $addr2line_output
       rc=$?
       [[ "$rc" -eq 1 ]] && rc=0
     elif [[ "idf_monitor" == "${myname}" ]]; then
@@ -600,5 +653,6 @@ fi
 [ -f $menu_config ] && rm $menu_config
 [ -f $temp_io ] && rm $temp_io
 
+exit 0
 
 # https://stackoverflow.com/questions/20398499/remove-last-argument-from-argument-list-of-shell-script-bash

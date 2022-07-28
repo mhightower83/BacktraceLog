@@ -184,12 +184,15 @@ int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void
     const uint32_t text_size = prev_text_size(pc);
 
     // The question is how agressively should we keep looking.
-    // For now, keep searching until both BACKTRACE_MAX_RETRY and
-    // BACKTRACE_MAX_LOOKBACK are exhaused.  BACKTRACE_MAX_LOOKBACK defaults to
-    // 512 bytes and BACKTRACE_MAX_RETRY to 1.
+    //
+    // For now, keep searching BACKTRACE_MAX_RETRY are exhaused.
+    //
+    // A "ret.n" match represents a fail. BACKTRACE_MAX_LOOKBACK allows the
+    // inner loop search to continue as long as "off" is less than
+    // BACKTRACE_MAX_LOOKBACK.
+
     for (size_t retry = 0;
-        ((retry < BACKTRACE_MAX_RETRY) || (off < BACKTRACE_MAX_LOOKBACK)) &&
-          (off < text_size) && pc;
+        (retry < BACKTRACE_MAX_RETRY) && (off < text_size) && pc;
         retry++, off++)
     {
         pc = (uint32_t)i_pc;
@@ -288,18 +291,21 @@ int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void
 
                 break;
             } else
-            // Most fail to find, land here.
+            // Most fail to find, land here. The question is how aggressively
+            // should we keep looking. Limit with BACKTRACE_MAX_LOOKBACK bytes
+            // back from the start "pc".
             //
-            // 0d f0      	RET.N
+            // 0d f0    RET.N
             //
             if (idx(pb, 0) == 0x0d && idx(pb, 1) == 0xf0) {
                 ETS_PRINTF("\nRET.N pb: 0x%08X\n", (uint32_t)pb);
 
+                // Make sure pc is reachable. Follow the code back to PC.
                 if (!verify_path_ret_to_pc(pc, off)) {
                     continue;
                 }
 
-                if (off <= 3) {
+                if (off <= 3 || off > BACKTRACE_MAX_LOOKBACK) {
                     pc = lr;
                     break;
                 }
@@ -315,6 +321,7 @@ int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void
     // Save only if successful
     //
     if (off < text_size) {
+      //+ TODO these two should be moved back into the if()
         *o_sp = (void *)sp;
         *o_pc = (void *)pc;
         if (xt_pc_is_valid(*o_pc)) {

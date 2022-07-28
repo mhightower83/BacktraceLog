@@ -17,6 +17,17 @@ For a typical install, create links to `common_backtrace_script.sh` similar to t
 ln common_backtrace_script.sh ~/bin/addr2line.sh
 ln common_backtrace_script.sh ~/bin/idf_monitor.sh
 ```
+Add `boot.txt` to your directory. This allows addr2line.sh to show something for ROM addresses in the backtrace.
+```
+wget "http://cholla.mmto.org/esp8266/bootrom/boot.txt"
+or
+from https://raw.githubusercontent.com/trebisky/esp8266/master/reverse/bootrom/boot.txt
+```
+The default directory/path for this file is:
+```
+~/Arduino/libraries/Backtrace_Log/scripts/boot.txt
+```
+To use an alternate path, set environment variable `ESP8266_BOOTROM_LISTING` to the full path of the file. Or edit the script `ESP8266_BOOTROM_LISTING`. It is toward the top.
 
 Additional application required: `jq`, `xclip`
 ```

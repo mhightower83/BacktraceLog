@@ -101,13 +101,6 @@ When doing OTA upgrades, the first 32 words of the user data area is used by `eb
 ## `-DESP_DEBUG_BACKTRACELOG_USE_NON32XFER_EXCEPTION=1`
 The downside of using the non32xfer exception handler is the added stack loading to handle the exception. Thus, requiring an additional 272 bytes of stack space. Not using the exception handler only increases BacktrackLog code size by 104 bytes of FLASH code space. _I am not sure this option should be available._ It defaults to off.
 
-## Library internal development build options
-Additional development debug prints. I may purged these at a later date.
-
-`-DESP_DEBUG_BACKTRACE_CPP=1` - Enable debug prints from `backtrace.cpp`
-
-`-DESP_DEBUG_BACKTRACELOG_CPP=1` - Enable debug prints from `BacktraceLog.cpp`
-
 ## `-DESP_SHARE_PREINIT__DEBUG_BACKTRACELOG="backtaceLog_preinit"`
 The BacktraceLog libary needs to be called as part of preinit. If you already have a `preinit()` function defined, add this define with an alternate function name for BacktraceLog to use and call that function from your `preinit()`.
 ```cpp
@@ -116,6 +109,33 @@ void preinit(void) {
   ...
 }
 ```
+
+## Library internal development build options
+Additional development debug prints. I may purged these at a later date.
+
+`-DESP_DEBUG_BACKTRACE_CPP=1` - Enable debug prints from `backtrace.cpp`
+
+`-DESP_DEBUG_BACKTRACELOG_CPP=1` - Enable debug prints from `BacktraceLog.cpp`
+
+### `xt_retaddr_callee` in `backtrace.cpp`
+```cpp
+int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp)
+```
+This function is at the core of BacktraceLog. Given a `i_pc` and `i_sp`, it searches backward through the binary, looking for primary patterns
+```
+12 c1 xx   ADDI a1, a1, -128..127
+r2 Ax yz   MOVI r, -2048..2047
+0d f0      RET.N
+```
+Additional patterns are used to verify the find; however, the results can sometimes fail to yield a valid PC value. Two defines control/limit the search `BACKTRACE_MAX_LOOKBACK` and `BACKTRACE_MAX_RETRY`, preventing an endless search or too early fail.
+
+`BACKTRACE_MAX_RETRY` defaults to 3. It controls an outer loop and defines the number of times to retry a failed search.
+
+`BACKTRACE_MAX_LOOKBACK` defaults to 512. It defines the number of bytes to scan backward from i_pc, looking for the stack frame setup.
+
+Usually, finding a `ret.n` match represents a fail. `BACKTRACE_MAX_LOOKBACK` allows the inner loop search to continue as long as the backward search has not exceeded `BACKTRACE_MAX_LOOKBACK`. `BACKTRACE_MAX_LOOKBACK` defaults to 512 bytes. The outer loop retry count will allow the backward search to continue until it is zero. With each new `ret.n` failure decrementing the retry count.
+
+I don't expect the defaults to need overrides.
 
 # GCC build optimizations
 Helpful build options, you can add to your `<sketche name>.ino.globals.h` file. Note, these options may create new problems by increased code, stack size, and execution time.
