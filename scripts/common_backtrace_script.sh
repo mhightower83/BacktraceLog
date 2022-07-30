@@ -43,6 +43,7 @@ fi
 : ${ESP8266_BOOTROM_LISTING=~/Arduino/libraries/Backtrace_Log/scripts/boot.txt}
 ESP8266_BOOTROM_LISTING=$( realpath $ESP8266_BOOTROM_LISTING )
 
+nameshpath="${0%/*}"
 namesh="${0##*/}"
 myname="${namesh%.*}"
 cmd_args="$@"
@@ -69,6 +70,10 @@ EOF
   Presents a list of builds to select from. After selection, prompts
   for list of backtrace addresses
 
+  Environment variables and assumed defaults:
+    ESP8266_BOOTROM_LISTING=~/Arduino/libraries/Backtrace_Log/scripts/boot.txt
+    ESP_ELF_ARCHIVE_PATH (none, unset)
+
 EOF
   elif [[ "idf_monitor" == "${1}" ]]; then
     cat <<EOF
@@ -77,8 +82,7 @@ EOF
   Environment variables and assumed defaults:
     ESP_USB_PORT="/dev/ttyUSB0"
     ESP_PORT_SPEED="115200"
-    ESP_ELF_ARCHIVE_PATH unset
-    ESP8266_BOOTROM_LISTING=~/Arduino/libraries/Backtrace_Log/scripts/boot.txt
+    ESP_ELF_ARCHIVE_PATH (none, unset)
 
   or
 
@@ -91,7 +95,28 @@ EOF
   fi
 }
 
-# Get hardware environment matching tool for .elf file.
+function find_script_paths() {
+  # Find all hard linked copies.
+  find -L ~/ -samefile ${nameshpath}/${namesh} | sed -e 's:/[^/]*$::' | sort -u | tr "\n" ","
+}
+function get_file_path() {
+  if [[ -z "${1}" ]]; then
+    return 1
+  fi
+  readarray -td, SCRIPT_LINK_PATHS < <( find_script_paths )
+  for FOLDER in ${SCRIPT_LINK_PATHS[@]}; do
+    FOUND_FILE="${FOLDER}/$1"
+    if [[ -f "${FOUND_FILE}" ]]; then
+      echo "${FOUND_FILE}"
+      return 0
+    fi
+  done
+  return 1
+}
+# get_file_path "boot.txt"
+# exit
+
+# Find hardware environment and matching tools for .elf file
 function get_hardware_tool_path() {
   elfpath="${2%/*}"
   if [[ ! -f "${elfpath}/build.options.json" ]]; then
@@ -270,6 +295,7 @@ function do_viewer_dialog() {
     ADDR=""
     FILE_NAME=${entry#*) }
   fi
+
   if [[ "$FILE_NAME" != "${FILE_NAME#* ?? ??:0}" ]]; then
     FILE_NAME=""
     FUNC_NAME=""
@@ -279,16 +305,42 @@ function do_viewer_dialog() {
     FILE_NAME=""
     LINE_NO=0
   else
-    FUNC_NAME="${FILE_NAME%% at /*}"
-    FUNC_NAME="${FUNC_NAME%%\(*}"
-    FILE_NAME="/${FILE_NAME#* at /}"
-    FILE_NAME="${FILE_NAME%:*}"
+    if [[ $FILE_NAME != "${FILE_NAME%% at /*}" ]]; then
+      FUNC_NAME="${FILE_NAME%% at /*}"
+      FUNC_NAME="${FUNC_NAME%%\(*}"
+      FILE_NAME="/${FILE_NAME#* at /}"
+      FILE_NAME="${FILE_NAME%:*}"
+    elif [[ $FILE_NAME != "${FILE_NAME%% at *}" ]]; then
+      FUNC_NAME="${FILE_NAME%% at *}"
+      FUNC_NAME="${FUNC_NAME%%\(*}"
+      FILE_NAME="${FILE_NAME#* at }"
+      FILE_NAME="${FILE_NAME%:*}"
+      LINE_NO=0
+    else
+      FILE_NAME=""
+      FUNC_NAME=""
+      LINE_NO=0
+    fi
     # echo "FUNC_NAME='$FUNC_NAME'"
     # echo "FILE_NAME='$FILE_NAME'"
     # read -n1 anyway
   fi
-  [[ -n "${FILE_NAME}" ]] && FILE_NAME=$( realpath "$FILE_NAME" )
+
+  # Not sure why some files have no path and some do
+  # Need to fix this to use .json file to find core sources.
+  if [[ -n "${FILE_NAME}" ]]; then
+    if [[ -f "${FILE_NAME}" ]]; then
+      FILE_NAME=$( realpath "$FILE_NAME" )
+    elif [[ -f "cores/esp8266/${FILE_NAME}" ]]; then
+      FILE_NAME=$( realpath "cores/esp8266/$FILE_NAME" )
+    fi
+    if [[ -f "$FILE_NAME" && 0 -eq $LINE_NO && -n "${FUNC_NAME}" ]]; then
+      LINE_NO=$( grep -nom1 "${FUNC_NAME}" $FILE_NAME )
+      LINE_NO=${LINE_NO%%:*}
+    fi
+  fi
   PATTERN=""
+  [[ -n "${FUNC_NAME}" ]] && PATTERN="-p${FUNC_NAME}"
 
   # if [[ $LINE_NO != ?(-)+([0-9]) ]]; then
   #   LINE_NO=0
@@ -297,18 +349,17 @@ function do_viewer_dialog() {
   if [[ 0 -eq $LINE_NO ]]; then
     if [[ "0x4000" == "${ZXADDR:0:6}" ]]; then
       FILE_NAME="${ESP8266_BOOTROM_LISTING}"
-      if [[ -f "$FILE_NAME" ]]; then
+      if [[ -n "$FILE_NAME" && -f "$FILE_NAME" ]]; then
         LINE_NO=$( grep -nom1 "${ADDR}" $FILE_NAME )
         LINE_NO=${LINE_NO%%:*}
         PATTERN="-p${ADDR}:"
       else
         FILE_NAME=""
-        echo -e "\nBoot ROM listing file missing\nSee ReadMe.md\n"
+        echo -e "\nBoot ROM listing file, '${ESP8266_BOOTROM_LISTING}', missing\n  See ReadMe.md\n  press any key to continue"
         read -n1 anykey
       fi
     fi
   fi
-
   if [[ $DIALOG_OK == $rc ]]; then
     if [[ 0 -eq $LINE_NO ]]; then
       if [[ -n "$FUNC_NAME" ]]; then
@@ -319,8 +370,14 @@ function do_viewer_dialog() {
     elif [[ -n "$FILE_NAME" ]]; then
       add2filehistory "$FILE_NAME"
       [[ -n $LINE_NO && 1 -ne $LINE_NO ]] && LINE_NO=$(( $LINE_NO - 1 ))
-      less +$LINE_NO -N -i ${PATTERN} "$FILE_NAME"
+      less ${PATTERN} +$LINE_NO -N -i "$FILE_NAME"
       lastfile="$FILE_NAME"
+    else
+      echo "Diagnostic:"
+      echo "  LINE_NO='$LINE_NO'"
+      echo "  PATTERN='$PATTERN'"
+      echo "  FILE_NAME='$FILE_NAME'"
+      read -n1 anykey
     fi
   elif [[ $rc == $DIALOG_EXTRA ]]; then
     cat "$addr2line_output" | xclip -selection clipboard
@@ -378,7 +435,7 @@ function do_addr2line() {
   if [[ $# -eq 1 ]]; then
     clear
     echo "Paste below the backtrace line."
-    echo "Terminate the list with an <CTRL-D> on an empty line."
+    echo "Terminate the list with an <CTRL-D> at the start of a new line."
     echo ""
     INPUT=$( cat |
       sed -n -e 's/[[:space:],:=]/\n/pg' |

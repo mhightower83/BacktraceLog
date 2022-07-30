@@ -1,13 +1,13 @@
 # Backtrace Log
-Backtrace condenses the large stack dump to a form more easily stored or carried forward to the next boot cycle for deferred retrieval. BacktraceLog can store in an IRAM or DRAM log buffer. The log buffer can optionally be backed up to User RTC memory and persist across deep sleep.
+BacktraceLog condenses the large stack dump to a form more easily stored or carried forward to the next boot cycle for deferred retrieval. BacktraceLog can store in an IRAM or DRAM log buffer. The log buffer can optionally be backed up to User RTC memory and persist across deep sleep.
 
-By backtrace, we are referring to a series of program execution addresses printed on a single line. These may represent the return points of each nested function call going backward from the crash address. To generate a report of source code locations, provide the list of addresses to a utility like `addr2line`.
+"Backtrace" refers to a series of program execution addresses printed on a single line. These may represent the return points of each nested function call going backward from the crash address. To generate a report of source code locations, provide the list of addresses to a utility like `addr2line`.
 
-Because of some very efficient compiler optimizations, the call list may have gaps. Some optimization changes like `-fno-optimize-sibling-calls` can improve the backtrace report. This one has the downside of increasing Stack usage.
+Because of compiler optimizations, the call list may have gaps. The same problem exists with the "ESP Exception Decoder" using a full stack dump. Some optimization changes like `-fno-optimize-sibling-calls` can improve the backtrace report. This one has the downside of increasing Stack usage.
 
-BacktraceLog works through a postmortem callback. It stores and optionally prints a backtrace. The backtrace process extracts data by scanning the stack and machine code, looking at each stack frame for size and a return addresses. When occurring in an edge function, WDT faults are challenging. An edge function can hide an infinite loop from this method. The edge function does not need to store the return address on the Stack. The register `a0` is never overwritten by a function call. By adding an empty Extended ASM line, `asm volatile("" ::: "a0", "memory");`, near the top of these functions, can persuade the compiler to commit the return address to the Stack.
+BacktraceLog works through a postmortem callback. It stores and optionally prints a backtrace. The backtrace process extracts data by scanning the stack and machine code, looking at each stack frame for size and a return addresses. When occurring in a leaf function, WDT faults are challenging. A leaf function can hide an infinite loop from this method. The leaf function does not need to store the return address on the Stack. The register `a0` is never overwritten by a function call. By adding an empty Extended ASM line, `asm volatile("" ::: "a0", "memory");`, near the top of these functions, can persuade the compiler to store the return address on the Stack.
 
-The BacktraceLog library adds about 3K bytes to the total sketch size. Of that, a minor 188 bytes is to support the RTC memory backup. The library can be disabled in the build by setting `-DESP_DEBUG_BACKTRACELOG_MAX=0` in the sketch build options.
+The BacktraceLog library can add up to about 3K bytes to the total sketch size. Of that, a minor 188 bytes is aded to support the RTC memory backup. The library can be disabled in the build by setting `-DESP_DEBUG_BACKTRACELOG_MAX=0` in the build options. This library requires the use of global build options like that supported by a [`<sketch name>.ino.globals.h`](https://arduino-esp8266.readthedocs.io/en/latest/faq/a06-global-build-options.html?highlight=build.opt#how-to-specify-global-build-defines-and-options) file.
 
 The library gains control at crash time through a postmortem callback function, `custom_crash_callback`. This library builds on Espressif's `backtrace.c`. It has been readapted from Open source RTOS to the Arduino ESP8266 environment using Espressif's NONOS SDK.
 
@@ -26,8 +26,8 @@ Minimal lines to use:
 BacktraceLog backtraceLog;
 ...
 
-void edge_fn(void) {
-  ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION();
+void leaf_fn(void) {
+  ESP_DEBUG_BACKTRACELOG_LEAF_FUNCTION();
   ...
 }
 
@@ -41,7 +41,7 @@ void setup() {
 
 void loop() {
     ...
-    edge_fn();
+    leaf_fn();
 }
 ```
 
@@ -67,10 +67,10 @@ Some useful defines to include in your [`<sketch name>.ino.globals.h`](https://a
 #ifndef _INO_GLOBALS_H
 #define _INO_GLOBALS_H
 #if defined(__cplusplus) || ((!defined(__cplusplus) && !defined(__ASSEMBLER__)))
-#ifdef ESP_DEBUG_PORT
-#define ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION(...) __asm__ __volatile__("" ::: "a0", "memory")
+#ifdef DEBUG_ESP_PORT
+#define ESP_DEBUG_BACKTRACELOG_LEAF_FUNCTION(...) __asm__ __volatile__("" ::: "a0", "memory")
 #else
-#define ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION(...)
+#define ESP_DEBUG_BACKTRACELOG_LEAF_FUNCTION(...)
 #endif
 #endif
 ```
@@ -98,6 +98,8 @@ RTC memory 192 32-bit words total - data stays valid through sleep and EXT_RST
 
 When doing OTA upgrades, the first 32 words of the user data area is used by `eboot`. Offset 64 through 95 can be overwritten.
 
+For the reset function, some Development Boards toggle `CH_PD`/`CH_EN`, Chip Power Down, instead of `EXT_RST`, resulting in loss of RTC memory content.
+
 ## `-DESP_DEBUG_BACKTRACELOG_USE_NON32XFER_EXCEPTION=1`
 The downside of using the non32xfer exception handler is the added stack loading to handle the exception. Thus, requiring an additional 272 bytes of stack space. Not using the exception handler only increases BacktrackLog code size by 104 bytes of FLASH code space. _I am not sure this option should be available._ It defaults to off.
 
@@ -121,7 +123,7 @@ Additional development debug prints. I may purged these at a later date.
 ```cpp
 int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp)
 ```
-This function is at the core of BacktraceLog. Given a `i_pc` and `i_sp`, it searches backward through the binary, looking for primary patterns
+This function is at the core of BacktraceLog. Given a `i_pc` and `i_sp`, it searches backward through the binary, looking for these patterns first
 ```
 12 c1 xx   ADDI a1, a1, -128..127
 r2 Ax yz   MOVI r, -2048..2047
@@ -162,7 +164,7 @@ https://gcc.gnu.org/onlinedocs/gcc/Instrumentation-Options.html
 
 There are two possible cases for using this.
 1. Primary use was for Hardware WDT Stack Dump, see ReadMe.md in `examples/HwdtBacktrace` for details.
-2. However, it may be useful in debugging where a crash occurs in an end/edge function. In these function the compiler does not need to save the return address on the stack, making it difficult to backtrace through the stack. Using `-finstrument-functions`, will necessitate all functions to call the profiler enter/exit functions. There may be other/better optimization changes to achieve this goal; however, I don't know of them. Adding `asm volatile("" ::: "a0", "memory");` at the top of the function is also another alternative for this issue.
+2. However, it may be useful in debugging where a crash occurs in a leaf function. In these function the compiler does not need to save the return address on the stack, making it difficult to backtrace through the stack. Using `-finstrument-functions`, will necessitate all functions to call the profiler enter/exit functions. There may be other/better optimization changes to achieve this goal; however, I don't know of them. Adding `asm volatile("" ::: "a0", "memory");` at the top of the function is also another alternative for this issue.
 
 Note well, `instrument-functions-exclude-file-list` substrings will also match to directories.
 
