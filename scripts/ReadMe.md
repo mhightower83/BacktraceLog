@@ -7,7 +7,7 @@ A script to make life wasier when using `addr2line` or `idf_monitor.py`.
      *  you copy paste the backtrace output into the window and finish with `<CTRL-D>` on a new line.
      * A decoded backtrace report is presented with `dialog`
      * you can select a function/file/line to view from the decoded resutls.
-     * More details [`addr2line.sh`](addr2linesh)
+     * More details [`addr2line.sh`](#addr2linesh)
   * `idf_monitor.py`
      * Starts a python based terminal emulator
      * Monitors ESP8266 output for code addresses to interpret with `addr2line`
