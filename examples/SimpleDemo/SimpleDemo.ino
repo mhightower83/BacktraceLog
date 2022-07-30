@@ -3,7 +3,7 @@
   with the resulting backtrace report.
 
   For this example using the compile option "-fno-optimize-sibling-calls",
-  will greatly improve the results from the "ESP Exception Decoder" and other
+  will improve the results from the "ESP Exception Decoder" and other
   decoder utilities.
 
   "-fno-optimize-sibling-calls"
@@ -18,6 +18,17 @@
 #include <Esp.h>
 #include <BacktraceLog.h>
 BacktraceLog backtraceLog;
+
+
+constexpr size_t crash_event_que_depth = 2;
+os_event_t exc_crash_event_que[crash_event_que_depth];
+extern "C" void exc_crash_on_system_stack(os_event_t *e);
+void exc_crash_on_system_stack(os_event_t *e) {
+    (void)e;
+    DEBUG_ESP_BACKTRACELOG_LEAF_FUNCTION(); // Add this so that the leaf function caller appears in the backtrace.
+    asm volatile("ill;");
+}
+
 
 #ifdef USE_WIFI
 #ifndef STASSID
@@ -35,7 +46,7 @@ void processKey(Print& out, int hotKey);
 void setup(void) {
   Serial.begin(115200);
   delay(200);    // This delay helps when using the 'Modified Serial monitor' otherwise it is not needed.
-  Serial.printf_P(PSTR("\r\n\r\nSimple IRAM Crash Log Backtrace Demo ...\r\n\r\n"));
+  Serial.printf_P(PSTR("\r\n\r\nSimple Crash Log Backtrace Demo ...\r\n\r\n"));
 
   backtraceLog.report(Serial);
   Serial.println();
@@ -96,7 +107,7 @@ My solutuion for now:
 #endif
 
 STATIC int divideA_B(int a, int b) {
-  ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION();
+  DEBUG_ESP_BACKTRACELOG_LEAF_FUNCTION();
   return (a / b);
 }
 
@@ -170,9 +181,17 @@ void processKey(Print& out, int hotKey) {
       panic();
       break;
     case 'i':
-      out.println(F("Execute an illegal instruction."));
+      out.println(F("Execute an illegal instruction while on the 'CONT' stack."));
       __asm__ __volatile__("ill\n\t" ::: "memory");
       out.println();
+      break;
+    case 'I':
+      out.println(F("Execute an illegal instruction while on the 'SYS' stack via 'system_os_task/post'."));
+      system_os_task(exc_crash_on_system_stack, USER_TASK_PRIO_1, exc_crash_event_que, crash_event_que_depth);
+      system_os_post(USER_TASK_PRIO_1, (os_signal_t)42, (os_param_t)0);
+      out.println(F("'system_os_post' has returned. Any time now!"));
+      delay(1000);
+      out.println(F(":( no crash"));
       break;
     case 'z':
       out.println(F("Crashing by dividing by zero. This should generate an exception(0)."));
@@ -195,7 +214,8 @@ void processKey(Print& out, int hotKey) {
       out.println();
       out.println(F("Crash with:"));
       out.println(F("  s    - Software WDT"));
-      out.println(F("  i    - an illegal instruction"));
+      out.println(F("  i    - Execure an illegal instruction"));
+      out.println(F("  I    - Execute an illegal instruction while on the 'SYS' stack"));
       out.println(F("  z    - Nested calls Divide by zero, exception(0);"));
       out.println(F("  p    - panic();"));
       out.println();

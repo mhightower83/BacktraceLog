@@ -121,7 +121,7 @@ My solutuion for now:
 #endif
 
 STATIC int divideA_B(int a, int b) {
-  ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION();
+  DEBUG_ESP_BACKTRACELOG_LEAF_FUNCTION();
   return (a / b);
 }
 

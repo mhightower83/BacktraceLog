@@ -7,7 +7,7 @@ Because of compiler optimizations, the call list may have gaps. The same problem
 
 BacktraceLog works through a postmortem callback. It stores and optionally prints a backtrace. The backtrace process extracts data by scanning the stack and machine code, looking at each stack frame for size and a return addresses. When occurring in a leaf function, WDT faults are challenging. A leaf function can hide an infinite loop from this method. The leaf function does not need to store the return address on the Stack. The register `a0` is never overwritten by a function call. By adding an empty Extended ASM line, `asm volatile("" ::: "a0", "memory");`, near the top of these functions, can persuade the compiler to store the return address on the Stack.
 
-The BacktraceLog library can add up to about 3K bytes to the total sketch size. Of that, a minor 188 bytes is aded to support the RTC memory backup. The library can be disabled in the build by setting `-DESP_DEBUG_BACKTRACELOG_MAX=0` in the build options. This library requires the use of global build options like that supported by a [`<sketch name>.ino.globals.h`](https://arduino-esp8266.readthedocs.io/en/latest/faq/a06-global-build-options.html?highlight=build.opt#how-to-specify-global-build-defines-and-options) file.
+The BacktraceLog library can add up to about 3K bytes to the total sketch size. Of that, a minor 188 bytes is aded to support the RTC memory backup. The library can be disabled in the build by setting `-DDEBUG_ESP_BACKTRACELOG_MAX=0` in the build options. This library requires the use of global build options like that supported by a [`<sketch name>.ino.globals.h`](https://arduino-esp8266.readthedocs.io/en/latest/faq/a06-global-build-options.html?highlight=build.opt#how-to-specify-global-build-defines-and-options) file.
 
 The library gains control at crash time through a postmortem callback function, `custom_crash_callback`. This library builds on Espressif's `backtrace.c`. It has been readapted from Open source RTOS to the Arduino ESP8266 environment using Espressif's NONOS SDK.
 
@@ -27,7 +27,7 @@ BacktraceLog backtraceLog;
 ...
 
 void leaf_fn(void) {
-  ESP_DEBUG_BACKTRACELOG_LEAF_FUNCTION();
+  DEBUG_ESP_BACKTRACELOG_LEAF_FUNCTION();
   ...
 }
 
@@ -50,43 +50,43 @@ Some useful defines to include in your [`<sketch name>.ino.globals.h`](https://a
 /*@create-file:build.opt@
 
 // Maximum backtrace addresses to save  
--DESP_DEBUG_BACKTRACELOG_MAX=32
+-DDEBUG_ESP_BACKTRACELOG_MAX=32
 
 // Print backtrace after postmortem
--DESP_DEBUG_BACKTRACELOG_SHOW=1
+-DDEBUG_ESP_BACKTRACELOG_SHOW=1
 
 -fno-optimize-sibling-calls
 
 // Use IRAM log buffer instead of DRAM
-// -DESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER=1
+// -DDEBUG_ESP_BACKTRACELOG_USE_IRAM_BUFFER=1
 
 // Backup log buffer to User RTC memory
-// -DESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET=96
+// -DDEBUG_ESP_BACKTRACELOG_USE_RTC_BUFFER_OFFSET=96
 */
 
 #ifndef _INO_GLOBALS_H
 #define _INO_GLOBALS_H
 #if defined(__cplusplus) || ((!defined(__cplusplus) && !defined(__ASSEMBLER__)))
 #ifdef DEBUG_ESP_PORT
-#define ESP_DEBUG_BACKTRACELOG_LEAF_FUNCTION(...) __asm__ __volatile__("" ::: "a0", "memory")
+#define DEBUG_ESP_BACKTRACELOG_LEAF_FUNCTION(...) __asm__ __volatile__("" ::: "a0", "memory")
 #else
-#define ESP_DEBUG_BACKTRACELOG_LEAF_FUNCTION(...)
+#define DEBUG_ESP_BACKTRACELOG_LEAF_FUNCTION(...)
 #endif
 #endif
 ```
 # Build define options
 These are build options you can add to your `<sketche name>.ino.globals.h` file
-## `-DESP_DEBUG_BACKTRACELOG_MAX=32`
+## `-DDEBUG_ESP_BACKTRACELOG_MAX=32`
 Enables backtrace logging by defining the maximum number of entries/levels/depth. Minimum value is 4. Values above 0 and less than 4 are processed as 4.
 
-## `-DESP_DEBUG_BACKTRACELOG_SHOW=1`
+## `-DDEBUG_ESP_BACKTRACELOG_SHOW=1`
 Print BacktraceLog report after postmortem stack dump.
 
-## `-DESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER=1`
+## `-DDEBUG_ESP_BACKTRACELOG_USE_IRAM_BUFFER=1`
 The backtrace can be stored in DRAM or IRAM. The default is DRAM. To select IRAM add this option.
 
-## `-DESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET=96`
-Use with a DRAM or an IRAM log buffer. A backup copy of the log buffer is made to RTC memory at the specified word offset. "User RTC memory" starts at word 64. Specify a value of 64 or higher but lower than 192. If ESP_DEBUG_BACKTRACELOG_MAX is too large, the RTC buffer will be reduce to fit the available space. The RTC memory copy will persist across EXT_RST, sleep, and soft restarts, etc. For this option, EXT_RST and sleep are the added benefit. However, RTC memory will _not_ persist after pulsing the Power Enable pin or a power cycle. Depending on your requirements, you may want to reduce `ESP_DEBUG_BACKTRACELOG_MAX` to fit the space available or less if you need to store other data in the "User RTC memory".
+## `-DDEBUG_ESP_BACKTRACELOG_USE_RTC_BUFFER_OFFSET=96`
+Use with a DRAM or an IRAM log buffer. A backup copy of the log buffer is made to RTC memory at the specified word offset. "User RTC memory" starts at word 64. Specify a value of 64 or higher but lower than 192. If DEBUG_ESP_BACKTRACELOG_MAX is too large, the RTC buffer will be reduce to fit the available space. The RTC memory copy will persist across EXT_RST, sleep, and soft restarts, etc. For this option, EXT_RST and sleep are the added benefit. However, RTC memory will _not_ persist after pulsing the Power Enable pin or a power cycle. Depending on your requirements, you may want to reduce `DEBUG_ESP_BACKTRACELOG_MAX` to fit the space available or less if you need to store other data in the "User RTC memory".
 
 RTC memory 192 32-bit words total - data stays valid through sleep and EXT_RST
 ```
@@ -100,14 +100,14 @@ When doing OTA upgrades, the first 32 words of the user data area is used by `eb
 
 For the reset function, some Development Boards toggle `CH_PD`/`CH_EN`, Chip Power Down, instead of `EXT_RST`, resulting in loss of RTC memory content.
 
-## `-DESP_DEBUG_BACKTRACELOG_USE_NON32XFER_EXCEPTION=1`
+## `-DDEBUG_ESP_BACKTRACELOG_USE_NON32XFER_EXCEPTION=1`
 The downside of using the non32xfer exception handler is the added stack loading to handle the exception. Thus, requiring an additional 272 bytes of stack space. Not using the exception handler only increases BacktrackLog code size by 104 bytes of FLASH code space. _I am not sure this option should be available._ It defaults to off.
 
-## `-DESP_SHARE_PREINIT__DEBUG_BACKTRACELOG="backtaceLog_preinit"`
+## `-DSHARE_PREINIT__DEBUG_ESP_BACKTRACELOG="backtaceLog_preinit"`
 The BacktraceLog libary needs to be called as part of preinit. If you already have a `preinit()` function defined, add this define with an alternate function name for BacktraceLog to use and call that function from your `preinit()`.
 ```cpp
 void preinit(void) {
-  ESP_SHARE_PREINIT__DEBUG_BACKTRACELOG();
+  SHARE_PREINIT__DEBUG_ESP_BACKTRACELOG();
   ...
 }
 ```
@@ -117,7 +117,7 @@ Additional development debug prints. I may purged these at a later date.
 
 `-DESP_DEBUG_BACKTRACE_CPP=1` - Enable debug prints from `backtrace.cpp`
 
-`-DESP_DEBUG_BACKTRACELOG_CPP=1` - Enable debug prints from `BacktraceLog.cpp`
+`-DDEBUG_ESP_BACKTRACELOG_CPP=1` - Enable debug prints from `BacktraceLog.cpp`
 
 ### `xt_retaddr_callee` in `backtrace.cpp`
 ```cpp
@@ -150,7 +150,7 @@ This option is also beneficial when using the traditional method of copy/paste f
 This option will increase stack usage; however, does not appear to have a significant effect on code size.
 
 ## `-fno-omit-frame-pointer`
-Adds a pointer at the end of the stack frame highest (last) address -8 just before the return address at -12. Not necessary for this library. It may help to get your bearings when looking at a postmortem stack dump. Postmortem will annotate the stack dump line where it occurs with a `<` mark. If you are looking for specific data in the stack, you may find this option useful along with ESP_DEBUG_BACKTRACELOG_SHOW. It will help visually group each functions stack and ESP_DEBUG_BACKTRACELOG_SHOW will have references to those stack locations as well.
+Adds a pointer at the end of the stack frame highest (last) address -8 just before the return address at -12. Not necessary for this library. It may help to get your bearings when looking at a postmortem stack dump. Postmortem will annotate the stack dump line where it occurs with a `<` mark. If you are looking for specific data in the stack, you may find this option useful along with DEBUG_ESP_BACKTRACELOG_SHOW. It will help visually group each functions stack and DEBUG_ESP_BACKTRACELOG_SHOW will have references to those stack locations as well.
 
 ## `-finstrument-functions`
 ```

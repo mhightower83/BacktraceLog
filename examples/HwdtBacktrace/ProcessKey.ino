@@ -5,13 +5,10 @@
 #include <BacktraceLog.h>
 extern BacktraceLog backtraceLog;
 
-void crashMeIfYouCan(void)__attribute__((weak));
-int divideA_B(int a, int b);
-int divideA_B_bp(int a, int b);
+
+
 extern "C" void hwdt_crash_on_system_stack(os_event_t *e);
 extern "C" void exc_crash_on_system_stack(os_event_t *e);
-
-int* nullPointer = NULL;
 
 constexpr size_t crash_event_que_depth = 2;
 os_event_t hwdt_crash_event_que[crash_event_que_depth];
@@ -19,7 +16,7 @@ os_event_t exc_crash_event_que[crash_event_que_depth];
 
 void hwdt_crash_on_system_stack(os_event_t *e) {
     (void)e;
-    // I don't know if this is the right way to stop a task
+    // I don't know if this is the right way to stop a task or if you can
     // system_os_task(NULL, USER_TASK_PRIO_2, hwdt_crash_event_que, crash_event_que_depth);
     ets_uart_printf("\nHWDT in ~7 seconds ...\n");
     asm volatile("break 1, 15;");
@@ -29,6 +26,13 @@ void exc_crash_on_system_stack(os_event_t *e) {
     (void)e;
     asm volatile("ill;");
 }
+
+
+void crashMeIfYouCan(void)__attribute__((weak));
+int divideA_B(int a, int b);
+int divideA_B_bp(int a, int b);
+
+int* nullPointer = NULL;
 
 void processKey(Print& out, int hotKey) {
   switch (hotKey) {
@@ -182,7 +186,7 @@ void processKey(Print& out, int hotKey) {
 // With the current toolchain 10.1, using this to divide by zero will *not* be
 // caught at compile time.
 int __attribute__((noinline)) divideA_B(int a, int b) {
-  ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION();
+  DEBUG_ESP_BACKTRACELOG_LEAF_FUNCTION();
   return (a / b);
 }
 
@@ -190,6 +194,6 @@ int __attribute__((noinline)) divideA_B(int a, int b) {
 // caught at compile time. And a hard coded breakpoint will be inserted.
 // Compiling with '-finstrument-functions' will change this to a runtime crash.
 int divideA_B_bp(int a, int b) {
-  ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION();
+  DEBUG_ESP_BACKTRACELOG_LEAF_FUNCTION();
   return (a / b);
 }

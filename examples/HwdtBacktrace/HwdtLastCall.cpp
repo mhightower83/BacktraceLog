@@ -38,6 +38,8 @@
     -finstrument-functions-exclude-function-list=app_entry,ets_intr_,ets_post,Cache_Read_Enable,non32xfer_exception_handler
     -finstrument-functions-exclude-file-list=umm_malloc,hwdt_app_entry,core_esp8266_postmortem,core_esp8266_app_entry_noextra4k,mmu_iram,backtrace,BacktraceLog,StackThunk
 */
+#include <Arduino.h>
+
 #if defined(DEBUG_ESP_HWDT) || defined(DEBUG_ESP_HWDT_NOEXTRA4K)
 #include <Arduino.h>
 #include <hwdt_app_entry.h>
@@ -346,4 +348,16 @@ static size_t check_paint_sys_stack(void) {
   }
 
 };
+#else
+extern "C" IRAM_ATTR void __cyg_profile_func_enter(void *this_fn, void *call_site) __attribute__((no_instrument_function));
+extern "C" IRAM_ATTR void __cyg_profile_func_exit(void *this_fn, void *call_site) __attribute__((no_instrument_function));
+
+void __cyg_profile_func_enter(void *this_fn, void *call_site) {
+  (void)this_fn;
+  (void)call_site;
+}
+void __cyg_profile_func_exit(void *this_fn, void *call_site) {
+  (void)this_fn;
+  (void)call_site;
+}
 #endif //#if defined(DEBUG_ESP_HWDT) || defined(DEBUG_ESP_HWDT_NOEXTRA4K)

@@ -17,41 +17,41 @@
 #ifndef _BACKTRACELOG_H
 #define _BACKTRACELOG_H
 
-#ifndef ESP_DEBUG_BACKTRACELOG_MAX
-#define ESP_DEBUG_BACKTRACELOG_MAX 0
+#ifndef DEBUG_ESP_BACKTRACELOG_MAX
+#define DEBUG_ESP_BACKTRACELOG_MAX 0
 #endif
 
-#if (ESP_DEBUG_BACKTRACELOG_MAX > 0)
+#if (DEBUG_ESP_BACKTRACELOG_MAX > 0)
 
-#ifndef ESP_DEBUG_BACKTRACELOG_SHOW
-#define ESP_DEBUG_BACKTRACELOG_SHOW 0
+#ifndef DEBUG_ESP_BACKTRACELOG_SHOW
+#define DEBUG_ESP_BACKTRACELOG_SHOW 0
 #endif
 
-#ifndef ESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER
-#define ESP_DEBUG_BACKTRACELOG_USE_IRAM_BUFFER 0
+#ifndef DEBUG_ESP_BACKTRACELOG_USE_IRAM_BUFFER
+#define DEBUG_ESP_BACKTRACELOG_USE_IRAM_BUFFER 0
 #endif
 
-#ifndef ESP_DEBUG_BACKTRACELOG_USE_NON32XFER_EXCEPTION
-#define ESP_DEBUG_BACKTRACELOG_USE_NON32XFER_EXCEPTION 0
+#ifndef DEBUG_ESP_BACKTRACELOG_USE_NON32XFER_EXCEPTION
+#define DEBUG_ESP_BACKTRACELOG_USE_NON32XFER_EXCEPTION 0
 #endif
 
-#ifndef ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET
-#define ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET 0
+#ifndef DEBUG_ESP_BACKTRACELOG_USE_RTC_BUFFER_OFFSET
+#define DEBUG_ESP_BACKTRACELOG_USE_RTC_BUFFER_OFFSET 0
 #endif
 
-#ifndef ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION
-#define ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION(...) __asm__ __volatile__("" ::: "a0", "memory")
+#ifndef DEBUG_ESP_BACKTRACELOG_LEAF_FUNCTION
+#define DEBUG_ESP_BACKTRACELOG_LEAF_FUNCTION(...) __asm__ __volatile__("" ::: "a0", "memory")
 #endif
 
 /*
- * If you already are using preinit, define ESP_SHARE_PREINIT__DEBUG_BACKTRACELOG
+ * If you already are using preinit, define SHARE_PREINIT__DEBUG_ESP_BACKTRACELOG
  * with a replacment name for BacktraceLog's preinit() and call it from your
  * preinit();
  */
-#ifndef ESP_SHARE_PREINIT__DEBUG_BACKTRACELOG
-#define ESP_SHARE_PREINIT__DEBUG_BACKTRACELOG preinit
+#ifndef SHARE_PREINIT__DEBUG_ESP_BACKTRACELOG
+#define SHARE_PREINIT__DEBUG_ESP_BACKTRACELOG preinit
 #endif
-extern "C" void ESP_SHARE_PREINIT__DEBUG_BACKTRACELOG(void);
+extern "C" void SHARE_PREINIT__DEBUG_ESP_BACKTRACELOG(void);
 
 struct BACKTRACELOG_MEM_INFO {
     void *addr;
@@ -59,26 +59,26 @@ struct BACKTRACELOG_MEM_INFO {
 };
 /*
  * Allow sketch to also reserve IRAM for data. Define callback through
- * ESP_DEBUG_BACKTRACELOG_IRAM_RESERVE_CB. On entry, BacktraceLog indicates the
+ * DEBUG_ESP_BACKTRACELOG_IRAM_RESERVE_CB. On entry, BacktraceLog indicates the
  * next available address and size remaining. The callback should do likewise at
  * exit. Address values should be 8 byte aligned.
 */
-#ifdef ESP_DEBUG_BACKTRACELOG_IRAM_RESERVE_CB
-struct BACKTRACELOG_MEM_INFO ESP_DEBUG_BACKTRACELOG_IRAM_RESERVE_CB(void *, size_t);
+#ifdef DEBUG_ESP_BACKTRACELOG_IRAM_RESERVE_CB
+struct BACKTRACELOG_MEM_INFO DEBUG_ESP_BACKTRACELOG_IRAM_RESERVE_CB(void *, size_t);
 #endif
 
-#if (ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET == 1)
+#if (DEBUG_ESP_BACKTRACELOG_USE_RTC_BUFFER_OFFSET == 1)
 // Fix it
-#undef ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET
-#define ESP_DEBUG_BACKTRACELOG_USE_RTC_BUFFER_OFFSET 64
+#undef DEBUG_ESP_BACKTRACELOG_USE_RTC_BUFFER_OFFSET
+#define DEBUG_ESP_BACKTRACELOG_USE_RTC_BUFFER_OFFSET 64
 #endif
 
-#define ESP_DEBUG_BACKTRACELOG_MIN 4
+#define DEBUG_ESP_BACKTRACELOG_MIN 4
 
-#if (ESP_DEBUG_BACKTRACELOG_MAX < ESP_DEBUG_BACKTRACELOG_MIN)
+#if (DEBUG_ESP_BACKTRACELOG_MAX < DEBUG_ESP_BACKTRACELOG_MIN)
 // Fix it
-#undef ESP_DEBUG_BACKTRACELOG_MAX
-#define ESP_DEBUG_BACKTRACELOG_MAX ESP_DEBUG_BACKTRACELOG_MIN // 32 => 172, 24 => 140, 16 => 108 bytes total size
+#undef DEBUG_ESP_BACKTRACELOG_MAX
+#define DEBUG_ESP_BACKTRACELOG_MAX DEBUG_ESP_BACKTRACELOG_MIN // 32 => 172, 24 => 140, 16 => 108 bytes total size
 #endif
 
 // #include <user_interface.h>
@@ -90,7 +90,7 @@ struct BACKTRACE_LOG {
     uint32_t crashCount;
     struct rst_info rst_info;
     uint32_t count;
-    void* pc[ESP_DEBUG_BACKTRACELOG_MAX];
+    void* pc[DEBUG_ESP_BACKTRACELOG_MAX];
 };
 
 class BacktraceLog {
@@ -121,10 +121,10 @@ extern "C" void backtraceLog_append(void);
 extern "C" void backtraceLog_fin(void);
 extern "C" void backtraceLog_write(void*pc);
 
-#else // #if (ESP_DEBUG_BACKTRACELOG_MAX > 0)
+#else // #if (DEBUG_ESP_BACKTRACELOG_MAX > 0)
 
-#ifndef ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION
-#define ESP_DEBUG_BACKTRACELOG_EDGE_FUNCTION(...)
+#ifndef DEBUG_ESP_BACKTRACELOG_LEAF_FUNCTION
+#define DEBUG_ESP_BACKTRACELOG_LEAF_FUNCTION(...)
 #endif
 
 class BacktraceLog {
@@ -154,6 +154,6 @@ static inline __attribute__((always_inline))
 void backtraceLog_fin(void) {}
 static inline __attribute__((always_inline))
 void backtraceLog_write(void*pc) { (void)pc; }
-#endif // #if (ESP_DEBUG_BACKTRACELOG_MAX > 0)
+#endif // #if (DEBUG_ESP_BACKTRACELOG_MAX > 0)
 
-#endif // #if (ESP_DEBUG_BACKTRACELOG_MAX > 0)
+#endif // #if (DEBUG_ESP_BACKTRACELOG_MAX > 0)

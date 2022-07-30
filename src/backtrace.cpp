@@ -105,7 +105,7 @@ int xt_pc_is_valid(const void *pc)
 }
 
 
-#if ESP_DEBUG_BACKTRACELOG_USE_NON32XFER_EXCEPTION
+#if DEBUG_ESP_BACKTRACELOG_USE_NON32XFER_EXCEPTION
 // Do byte pointer accesses and let the Exception handler resolve each read
 // into a 32-bit access.
 inline int idx(void *a, uint32_t b) { return ((uint8_t*)a)[b]; }
@@ -183,6 +183,14 @@ int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void
     uint32_t off = 0;
     const uint32_t text_size = prev_text_size(pc);
 
+    // Most of the time "lr" will be set to the value in register "A0" which
+    // very likely will be the return address when in a leaf function.
+    // Otherwise, it could be anything. Test and disqualify early maybe allowing
+    // better guesses later.
+    if (!xt_pc_is_valid((void *)lr)) {
+        lr = 0;
+    }
+
     // The question is how agressively should we keep looking.
     //
     // For now, keep searching BACKTRACE_MAX_RETRY are exhaused.
@@ -220,6 +228,8 @@ int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void
                 }
                 // Negative stack size, stack space creation/reservation and multiple of 16
 
+// TODO: rework or think about using `pc = lr;` when find_s32i_a0_a1(pc, off); fails.
+#if 0
                 if (off <= 3) {
                     pc = lr;
                     ETS_PRINTF("\noff <= 3\n");
@@ -234,7 +244,19 @@ int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void
                         pc = *sp_a0;
                     }
                 }
-
+#else
+                int a0_offset = find_s32i_a0_a1(pc, off);
+                if (a0_offset < 0) {
+                    continue;
+                    // pc = lr;
+                } else if (a0_offset >= -stk_size) {
+                    continue;
+                } else {
+                    uint32_t *sp_a0 = (uint32_t *)((uintptr_t)sp + (uintptr_t)a0_offset);
+                    ETS_PRINTF("\npc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d, %p(0x%08x)\n", pc, sp, stk_size, a0_offset, sp_a0, *sp_a0);
+                    pc = *sp_a0;
+                }
+#endif
                 // Get back to the caller's stack
                 sp -= stk_size;
 
@@ -281,7 +303,10 @@ int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void
                 }
 
                 int a0_offset = find_s32i_a0_a1(pc, off);
-                if (a0_offset < 0 || a0_offset >= stk_size) {
+                if (a0_offset < 0) {
+                    // pc = lr;
+                    continue;
+                } else if (a0_offset >= stk_size) {
                     continue;
                 } else {
                     pc = *(uint32_t *)(sp + a0_offset);
@@ -295,17 +320,47 @@ int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void
             // should we keep looking. Limit with BACKTRACE_MAX_LOOKBACK bytes
             // back from the start "pc".
             //
-            // 0d f0    RET.N
+            // 0d f0     RET.N
+            // 80 00 00  RET          # missing in orginal code!
             //
-            if (idx(pb, 0) == 0x0d && idx(pb, 1) == 0xf0) {
-                ETS_PRINTF("\nRET.N pb: 0x%08X\n", (uint32_t)pb);
+            if ((idx(pb, 0) == 0x0d && idx(pb, 1) == 0xf0) ||
+                (idx(pb, 0) == 0x80 && idx(pb, 1) == 0x00 && idx(pb, 2) == 0x00)) {
+                ETS_PRINTF("\nRET(.N) pb: 0x%08X\n", (uint32_t)pb);
 
                 // Make sure pc is reachable. Follow the code back to PC.
                 if (!verify_path_ret_to_pc(pc, off)) {
                     continue;
                 }
 
-                if (off <= 3 || off > BACKTRACE_MAX_LOOKBACK) {
+                // Conciderations: we bumped into what may be a ret.
+                // It could be misaligned junk that looks like a ret.
+                // If there are two or three zero's after the ret, that would be
+                // more convicing.
+                // Stratagy, check zeros following "ret".
+                // Do they pad out to align 4?
+                // TODO: revisit this for refinement and verification if it is needed, etc.
+                // Maybe consider stopping if lr is defined or try harder when not??
+                // We are more likely to have an "lr" with a leaf function
+
+                // More organized thoughts:
+                //
+                // With a leaf function we will only find a ret or ret.n  Maybe
+                // no stack frame setup and a0 may not be saved if it is
+                // present.
+                //
+                // On a recusive trace if "lr" is set, it is most likely the
+                // first call. We may or may not be looking at a leaf function
+                // where  there is no stack frame setup. Thus, "ret"s are more
+                // significant.
+                //
+                // When "lr" is null, we should expect a stack frame setup and
+                // "ret"s are less significant.
+                //
+                // For a Soft WDT event, the recursion starts off with a null
+                // "lr" guess.
+                //
+
+                if (off <= 8 || off > BACKTRACE_MAX_LOOKBACK) {
                     pc = lr;
                     break;
                 }
