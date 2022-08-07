@@ -10,7 +10,7 @@
 
 /*@create-file:build.opt:debug@
 
-// -DESP_DEBUG_BACKTRACE_CPP=1
+// -DDEBUG_ESP_BACKTRACE_CPP=1
 -DDEBUG_ESP_HWDT_POST_REPORT_CB=hwdt_post_processing
 
 

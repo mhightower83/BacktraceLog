@@ -3,11 +3,11 @@ BacktraceLog condenses the large stack dump to a form more easily stored or carr
 
 "Backtrace" refers to a series of program execution addresses printed on a single line. These may represent the return points of each nested function call going backward from the crash address. To generate a report of source code locations, provide the list of addresses to a utility like `addr2line`.
 
-Because of compiler optimizations, the call list may have gaps. The same problem exists with the "ESP Exception Decoder" using a full stack dump. Some optimization changes like `-fno-optimize-sibling-calls` can improve the backtrace report. This one has the downside of increasing Stack usage.
+Because of compiler optimizations, the call list may have gaps. The same problem exists with the "ESP Exception Decoder" using a full stack dump. Some optimization changes like adding `-fno-optimize-sibling-calls` can improve the backtrace report. This one has the downside of increasing Stack usage.
 
-BacktraceLog works through a postmortem callback. It stores and optionally prints a backtrace. The backtrace process extracts data by scanning the stack and machine code, looking at each stack frame for size and a return addresses. When occurring in a leaf function, WDT faults are challenging. A leaf function can hide an infinite loop from this method. The leaf function does not need to store the return address on the Stack. The register `a0` is never overwritten by a function call. By adding an empty Extended ASM line, `asm volatile("" ::: "a0", "memory");`, near the top of these functions, can persuade the compiler to store the return address on the Stack.
+BacktraceLog works through a postmortem callback. It stores and optionally prints a backtrace. The backtrace process extracts data by scanning the stack and machine code, looking at each stack frame for size and a return addresses. When occurring in a leaf function, WDT faults are challenging. A leaf function can hide an infinite loop from this method. The leaf function does not need to store the return address on the Stack. AS a leaf function register `a0` is never overwritten by a function call. Adding an empty Extended ASM line, `asm volatile("" ::: "a0", "memory");`, near the top of these functions, can persuade the compiler to store the return address on the Stack.
 
-The BacktraceLog library can add up to about 3K bytes to the total sketch size. Of that, a minor 188 bytes is aded to support the RTC memory backup. The library can be disabled in the build by setting `-DDEBUG_ESP_BACKTRACELOG_MAX=0` in the build options. This library requires the use of global build options like that supported by a [`<sketch name>.ino.globals.h`](https://arduino-esp8266.readthedocs.io/en/latest/faq/a06-global-build-options.html?highlight=build.opt#how-to-specify-global-build-defines-and-options) file.
+The BacktraceLog library can add up to about 3K bytes to the total sketch size. Of that, a minor 188 bytes is added to support the RTC memory backup. To temporarily disable the BacktraceLog library, set `-DDEBUG_ESP_BACKTRACELOG_MAX=0` in the build options. This library requires the use of global build options like that supported by a [`<sketch name>.ino.globals.h`](https://arduino-esp8266.readthedocs.io/en/latest/faq/a06-global-build-options.html?highlight=build.opt#how-to-specify-global-build-defines-and-options) file.
 
 The library gains control at crash time through a postmortem callback function, `custom_crash_callback`. This library builds on Espressif's `backtrace.c`. It has been readapted from Open source RTOS to the Arduino ESP8266 environment using Espressif's NONOS SDK.
 
@@ -15,9 +15,9 @@ The library gains control at crash time through a postmortem callback function, 
 
 The method used by `backtrace.c` is to scan code backward disassembling for instructions that could be used to set up the stack frame for the current function. While this method by its nature is problematic, several improvements have been made to increase the reliability of the results. While it works for my test cases, there can be **no assurance it will work in all cases**.
 
-When using an IRAM log buffer, it is placed after `_text_end` at the end of the IRAM code. Enough space is left between the log buffer and `_text_end` to ensure the log buffer is not overwritten by the boot loader during reboots. When using a DRAM log buffer, it is placed in the noinit section.
+When using an IRAM log buffer, it is placed after `_text_end` at the end of the IRAM code. Enough space is left between the log buffer and `_text_end` to ensure the log buffer is not overwritten by the boot loader during reboots. When using a DRAM log buffer, it is placed in the `noinit` section.
 
-As long as you do not do a hard reset or lose power, you should be able to see your backtrace at reboot. Or whenever you call `BacktraceLog::report(Serial)`.
+In the absence of a hard reset or lose of power, you should be able to see your backtrace at reboot. Or whenever you call `BacktraceLog::report(Serial)`.
 
 Minimal lines to use:
 ```cpp
@@ -86,7 +86,7 @@ Print BacktraceLog report after postmortem stack dump.
 The backtrace can be stored in DRAM or IRAM. The default is DRAM. To select IRAM add this option.
 
 ## `-DDEBUG_ESP_BACKTRACELOG_USE_RTC_BUFFER_OFFSET=96`
-Use with a DRAM or an IRAM log buffer. A backup copy of the log buffer is made to RTC memory at the specified word offset. "User RTC memory" starts at word 64. Specify a value of 64 or higher but lower than 192. If DEBUG_ESP_BACKTRACELOG_MAX is too large, the RTC buffer will be reduce to fit the available space. The RTC memory copy will persist across EXT_RST, sleep, and soft restarts, etc. For this option, EXT_RST and sleep are the added benefit. However, RTC memory will _not_ persist after pulsing the Power Enable pin or a power cycle. Depending on your requirements, you may want to reduce `DEBUG_ESP_BACKTRACELOG_MAX` to fit the space available or less if you need to store other data in the "User RTC memory".
+When used with a DRAM or an IRAM log buffer, a backup copy of the log buffer is made to RTC memory at the specified word offset. "User RTC memory" starts at word 64. Specify a value of 64 or higher but lower than 192. If DEBUG_ESP_BACKTRACELOG_MAX is too large, the RTC buffer will be reduce to fit the available space. The RTC memory copy will persist across EXT_RST, sleep, and soft restarts, etc. For this option, EXT_RST and sleep are the added benefit. However, RTC memory will _not_ persist after pulsing the Power Enable pin or a power cycle. Depending on your requirements, you may want to reduce `DEBUG_ESP_BACKTRACELOG_MAX` to fit the space available or less if you need to store other data in the "User RTC memory".
 
 RTC memory 192 32-bit words total - data stays valid through sleep and EXT_RST
 ```
@@ -115,7 +115,7 @@ void preinit(void) {
 ## Library internal development build options
 Additional development debug prints. I may purged these at a later date.
 
-`-DESP_DEBUG_BACKTRACE_CPP=1` - Enable debug prints from `backtrace.cpp`
+`-DDEBUG_ESP_BACKTRACE_CPP=1` - Enable debug prints from `backtrace.cpp`
 
 `-DDEBUG_ESP_BACKTRACELOG_CPP=1` - Enable debug prints from `BacktraceLog.cpp`
 

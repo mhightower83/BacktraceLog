@@ -43,7 +43,7 @@ When creating an archive of build directories, be sure to save the `build.option
 
 # `addr2line.sh`
 This script automates a lot of frequently steps for debugging.
-It accepts a backtrace by way of a copy/paste. After paste, you will need to close the input process with a `<CNTRL-D>`. The text is stripped down to hex values and passed to addr2line for decoding.
+It accepts a backtrace by way of a copy/paste. After paste, you will need to close the input process with a `<CTRL-D>` on a new line. The text is stripped down to hex values and passed to addr2line for decoding.
 
 The results are display via `dialog` which allows you to select a decoded line for expanded viewing.
 * When sources are available, the source file is shown using `less`.

@@ -47,7 +47,7 @@
 #define BACKTRACE_MAX_LOOKBACK 512
 #endif
 
-#ifdef ESP_DEBUG_BACKTRACE_CPP
+#ifdef DEBUG_ESP_BACKTRACE_CPP
 #define ETS_PRINTF ets_uart_printf
 #else
 #define ETS_PRINTF(...)

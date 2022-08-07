@@ -156,4 +156,6 @@ static inline __attribute__((always_inline))
 void backtraceLog_write(void*pc) { (void)pc; }
 #endif // #if (DEBUG_ESP_BACKTRACELOG_MAX > 0)
 
+
+extern BacktraceLog backtraceLog;
 #endif // #if (DEBUG_ESP_BACKTRACELOG_MAX > 0)

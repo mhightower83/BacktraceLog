@@ -163,7 +163,10 @@ void BacktraceLog::report(Print& out) {
     out.printf_P(PSTR("Backtrace Crash Report\r\n"));
 
     if (NULL == pBT) {
-        out.printf_P(PSTR("  Insufficient IRAM for log buffer.\r\n"));
+        out.printf_P(PSTR("  Log buffer not defined\r\n"));
+#ifdef DEBUB_ESP_PORT
+        out.printf_P(PSTR("  Recheck initialization options: preinit alternate name, etc.\r\n"));
+#endif
         return;
     }
 
