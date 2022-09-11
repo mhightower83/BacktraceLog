@@ -53,6 +53,10 @@
 #define ETS_PRINTF(...)
 #endif
 
+#ifndef BACKTRACE_IN_IRAM
+#define BACKTRACE_IN_IRAM 0
+#endif
+
 
 #ifndef MMU_IRAM_SIZE
 #error "Missing MMU_IRAM_SIZE"
@@ -67,6 +71,19 @@
 #define IS_ROM_CODE(a)                  ((size_t)(a) >= ROM_BASE && (size_t)(a) < ROM_CODE_END)
 
 extern "C" {
+#if BACKTRACE_IN_IRAM
+IRAM_ATTR static uint32_t prev_text_size(const uint32_t pc);
+IRAM_ATTR int xt_pc_is_valid(const void *pc);
+IRAM_ATTR static int find_s32i_a0_a1(uint32_t pc, uint32_t off);
+IRAM_ATTR static int find_addim_ax_a1(uint32_t pc, uint32_t off, int ax);
+IRAM_ATTR static bool verify_path_ret_to_pc(uint32_t pc, uint32_t off);
+IRAM_ATTR int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp);
+IRAM_ATTR int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp, void **o_fn);
+IRAM_ATTR struct BACKTRACE_PC_SP xt_return_address_ex(int lvl);
+IRAM_ATTR void *xt_return_address(int lvl);
+inline int idx(void *a, uint32_t b) __attribute__((always_inline));
+inline int sidx(void *a, uint32_t b) __attribute__((always_inline));
+#endif
 
 // Stay on the road. Return 0 for not a valid code pointer,
 //   or how far backward we can scan.
@@ -116,6 +133,29 @@ inline int idx(void *a, uint32_t b) { return mmu_get_uint8((void*)((uintptr_t)(a
 inline int sidx(void *a, uint32_t b) { return ((sint8_t)mmu_get_uint8((void*)((uintptr_t)(a) + (b)))); }
 #endif
 
+static int find_addim_ax_a1(uint32_t pc, uint32_t off, int ax) {
+    // returns an additional adjustment, if any, to reach a0 stored value
+    int a0_off = -1;  // Assume failed
+    if (1 == ax) {
+        // a1 needs no adjustment
+        return 0;
+    }
+    for (uint8_t *p0 = (uint8_t *)(pc - off);
+        (uintptr_t)p0 < pc;
+        p0 = (idx(p0, 0) & 0x08) ? &p0[2] : &p0[3]) {
+        //
+        // y2 d1 xx  addmi   ay, a1, (xx * 4)
+        //
+        if (idx(p0, 0) == (0x02 | (ax << 4)) && idx(p0, 1) == 0xd1) {
+            a0_off = sidx(p0, 2) * 256;
+            // We don't expect negative values
+            // let negative values implicitly fail
+            break;
+        }
+    }
+    return a0_off;
+}
+
 // For a definitive return value, we look for a0 save.
 // The current GNU compiler appears to store at +12 for a size 16 stack;
 // however, some other compiler or version will save at 0.
@@ -137,20 +177,26 @@ static int find_s32i_a0_a1(uint32_t pc, uint32_t off) {
     //
     // Scan forward
     for (uint8_t *p0 = (uint8_t *)(pc - off);
-         (uintptr_t)p0 < pc;
-         p0 = (idx(p0, 0) & 0x08) ? &p0[2] : &p0[3]) {
+        (uintptr_t)p0 < pc;
+        p0 = (idx(p0, 0) & 0x08) ? &p0[2] : &p0[3]) {
         //
-        // 02 61 zz s32i   a0, a1, n  (n = zz * 4)
+        // 02 6x zz s32i   a0, ax, n  (n = zz * 4)
         //
-        if (idx(p0, 0) == 0x02 && idx(p0, 1) == 0x61) {
-            a0_off = 4 * idx(p0, 2);
+        if (idx(p0, 0) == 0x02 && (idx(p0, 1) & 0xF0) == 0x60) {
+            int ax = idx(p0, 1) & 0x0F;
+            // Check for addmi ax, a1, n
+            a0_off = find_addim_ax_a1((uint32_t)p0, (uintptr_t)p0 - (pc - off), ax);
+            if (a0_off >= 0) a0_off += 4 * idx(p0, 2);
             break;
         } else
         //
-        // 09 z1    s32i.n a0, a1, n  (n = z * 4)
+        // 09 zx    s32i.n a0, ax, n  (n = z * 4)
         //
-        if (idx(p0, 0) == 0x09 && (idx(p0, 1) & 0x0F) == 0x01) {
-            a0_off = 4 * (idx(p0, 1) >> 4);
+        if (idx(p0, 0) == 0x09) {
+            int ax = idx(p0, 1) & 0x0F;
+            // Check for addmi ax, a1, n
+            a0_off = find_addim_ax_a1((uint32_t)p0, (uintptr_t)p0 - (pc - off), ax);
+            if (a0_off >= 0) a0_off += 4 * (idx(p0, 1) >> 4);
             break;
         }
     }
@@ -174,11 +220,13 @@ static bool verify_path_ret_to_pc(uint32_t pc, uint32_t off) {
 //    instruction do not have to be consecutive.
 //
 // Returns true (1) on success
-int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp)
+// int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp)
+int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp, void **o_fn)
 {
     uint32_t lr = (uint32_t)i_lr; // last return ??
     uint32_t pc = (uint32_t)i_pc;
     uint32_t sp = (uint32_t)i_sp;
+    uint32_t fn = 0;
 
     uint32_t off = 0;
     const uint32_t text_size = prev_text_size(pc);
@@ -240,7 +288,8 @@ int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void
                         continue;
                     } else {
                         uint32_t *sp_a0 = (uint32_t *)((uintptr_t)sp + (uintptr_t)a0_offset);
-                        ETS_PRINTF("\npc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d, %p(0x%08x)\n", pc, sp, stk_size, a0_offset, sp_a0, *sp_a0);
+                        ETS_PRINTF("\naddi: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d, %p(0x%08x)\n", pc, sp, stk_size, a0_offset, sp_a0, *sp_a0);
+                        fn = pc - off;
                         pc = *sp_a0;
                     }
                 }
@@ -253,7 +302,8 @@ int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void
                     continue;
                 } else {
                     uint32_t *sp_a0 = (uint32_t *)((uintptr_t)sp + (uintptr_t)a0_offset);
-                    ETS_PRINTF("\npc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d, %p(0x%08x)\n", pc, sp, stk_size, a0_offset, sp_a0, *sp_a0);
+                    ETS_PRINTF("\naddi: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d, %p(0x%08x)\n", pc, sp, stk_size, a0_offset, sp_a0, *sp_a0);
+                    fn = pc - off;
                     pc = *sp_a0;
                 }
 #endif
@@ -305,11 +355,18 @@ int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void
                 int a0_offset = find_s32i_a0_a1(pc, off);
                 if (a0_offset < 0) {
                     // pc = lr;
+                    // ETS_PRINTF("\n!sub: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d\n", pc, sp, stk_size, a0_offset);
                     continue;
                 } else if (a0_offset >= stk_size) {
+                    // ETS_PRINTF("\n!sub: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d\n", pc, sp, stk_size, a0_offset);
                     continue;
                 } else {
-                    pc = *(uint32_t *)(sp + a0_offset);
+                    // fn = pc - off;
+                    // pc = *(uint32_t *)(sp + a0_offset);
+                    uint32_t *sp_a0 = (uint32_t *)((uintptr_t)sp + (uintptr_t)a0_offset);
+                    ETS_PRINTF("\nsub: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d, %p(0x%08x)\n", pc, sp, stk_size, a0_offset, sp_a0, *sp_a0);
+                    fn = pc - off;
+                    pc = *sp_a0;
                 }
 
                 sp += stk_size;
@@ -361,6 +418,7 @@ int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void
                 //
 
                 if (off <= 8 || off > BACKTRACE_MAX_LOOKBACK) {
+                    fn = 0;
                     pc = lr;
                     break;
                 }
@@ -379,6 +437,7 @@ int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void
       //+ TODO these two should be moved back into the if()
         *o_sp = (void *)sp;
         *o_pc = (void *)pc;
+        *o_fn = (void *)fn;
         if (xt_pc_is_valid(*o_pc)) {
             // We changed the output registers anyway. So the caller can
             // evaluate what to do next.
@@ -387,6 +446,11 @@ int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void
     }
 
     return 0;
+}
+int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp)
+{
+    void *o_fn; // ignored
+    return xt_retaddr_callee_ex(i_pc, i_sp, i_lr, o_pc, o_sp, &o_fn);
 }
 
 struct BACKTRACE_PC_SP xt_return_address_ex(int lvl)
@@ -420,6 +484,7 @@ struct BACKTRACE_PC_SP xt_return_address_ex(int lvl)
 
     return pc_sp;
 }
+
 
 #if 1
 void *xt_return_address(int lvl) {

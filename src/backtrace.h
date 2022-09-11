@@ -43,6 +43,11 @@ int xt_pc_is_valid(const void *pc);
  */
 int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp);
 
+/*
+ * @param o_fn  the detected current current function entry
+ */
+int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp, void **o_fn);
+
 /**
  * @brief These functions may be used to get information about the callers of a function.
  *

@@ -112,6 +112,9 @@ void preinit(void) {
 }
 ```
 
+## `-DBACKTRACE_IN_IRAM=1`
+Used to move `backtrace.cpp` functions to IRAM. This allows backtrace calls from a non-icache supporting context, like an ISR or before the SDK is started.
+
 ## Library internal development build options
 Additional development debug prints. I may purged these at a later date.
 
