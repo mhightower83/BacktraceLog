@@ -40,8 +40,8 @@
 */
 
 
-#ifndef SIMPLEDEMO_INO_GLOBALS_H
-#define SIMPLEDEMO_INO_GLOBALS_H
+#ifndef TRACECALL_INO_GLOBALS_H
+#define TRACECALL_INO_GLOBALS_H
 #if !defined(__ASSEMBLER__)
 #ifdef DEBUG_ESP_PORT
 #define DEBUG_ESP_BACKTRACELOG_LEAF_FUNCTION(...) __asm__ __volatile__("" ::: "a0", "memory")

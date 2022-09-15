@@ -75,6 +75,23 @@ EOF
     ESP_ELF_ARCHIVE_PATH (none, unset)
 
 EOF
+elif [[ "decoder" == "${1}" ]]; then
+    cat <<EOF
+
+  $namesh
+
+  or
+
+  $namesh [alternate search path for .elf files]
+
+  Presents a list of builds to select from. After selection, prompts
+  for list of backtrace addresses
+
+  Environment variables and assumed defaults:
+    ESP8266_BOOTROM_LISTING=~/Arduino/libraries/Backtrace_Log/scripts/boot.txt
+    ESP_ELF_ARCHIVE_PATH (none, unset)
+
+EOF
   elif [[ "idf_monitor" == "${1}" ]]; then
     cat <<EOF
   $namesh
@@ -116,8 +133,23 @@ function get_file_path() {
 # get_file_path "boot.txt"
 # exit
 
+function get_key_value_build_json() {
+  elfpath="${2%/*}"
+  if [[ ! -f "${elfpath}/build.options.json" ]]; then
+    clear >&2
+    echo "Missing file: \"${elfpath}/build.options.json\"" >&2
+    read -n1 anykey
+    return
+  fi
+  readarray -td, key_value < <( jq -r ".${1}" ${elfpath}/build.options.json )
+  for value in ${key_value[@]}; do
+    echo "${value}"
+  done
+}
+
 # Find hardware environment and matching tools for .elf file
 function get_hardware_tool_path() {
+  local hardware_folders fqbn
   elfpath="${2%/*}"
   if [[ ! -f "${elfpath}/build.options.json" ]]; then
     clear >&2
@@ -237,6 +269,109 @@ function do_idf_monitor() {
     --baud $ESP_PORT_SPEED \
     --toolchain-prefix $ESP_TOOLCHAIN_PREFIX \
     $1
+}
+
+# https://stackoverflow.com/a/3352015
+function trim() {
+    local var="$*"
+    # remove leading whitespace characters
+    var="${var#"${var%%[![:space:]]*}"}"
+    # remove trailing whitespace characters
+    var="${var%"${var##*[![:space:]]}"}"
+    [[ -n "${var}" ]] && printf ' %s' "$var"
+}
+
+function get_flags_from_board_txt() {
+  option="${1}"
+  boards_txt="${2}"
+  qualifier="${3}"
+  res="${fqbn#*$option=}"
+  res="${res%%,*}"
+  if [[ -n "${res}"} ]]; then
+    if [[ -n "${qualifier}" ]]; then
+      res=$( grep ".${option}.${res}.build." "${boards_txt}" | grep -nm1 "$qualifier" )
+    else
+      res=$( grep -nm1 ".${option}.${res}.build." "${boards_txt}" )
+    fi
+    res="${res#*=}"
+    trim "$res"
+  fi
+}
+
+function do_mk_gcc_flags_json() {
+  local elf elfpath sketch_ino sketch_folder
+  elf="${@: -1}"
+  echo "build_json_file='${elf}'"
+  sketch_ino=$( get_key_value_build_json "sketchLocation" "${elf}" )
+  sketch_folder="${sketch_ino%/*}"
+  echo "sketch_ino='${sketch_ino}'"
+  elfpath="${elf%/*}"
+  if [[ ! -d "${elfpath}/sketch" ]]; then
+    clear >&2
+    echo "Missing folder: '${elfpath}/sketch'" >&2
+    read -n1 anykey
+    return
+  fi
+  local user_path sketch_book fqbn non32xfer mmu
+  user_path=$( realpath ~/ )
+  sketch_book="${sketch_folder#$user_path/}"
+  sketch_book="${user_path}/${sketch_book%%/*}"
+  esp8266_platform="./hardware/esp8266com/esp8266"
+  platform_path=$( realpath ${sketch_book}/${esp8266_platform} )
+  # echo "sketch_book     ='${sketch_book}'"
+  # echo "esp8266_platform='${esp8266_platform}'"
+  # echo "platform_path   ='${platform_path}'"
+
+  echo -n '  "gccIncludePaths": "'
+  tail -n+3 "${elfpath}/sketch/${sketch_ino##*/}.cpp.d" |
+    sed 's:/[^/]*$::' |
+    sed 's:^[[:space:]]*/:/:' |
+    sed 's:/..$::' |
+    sort -u |
+    sed "s|${sketch_book}|.|" |
+    grep -v '/tmp/arduino' |
+    tr "\n" "," |
+    sed 's:,$::'
+  echo '",'
+
+  echo "fqbn:"
+  # get_key_value_build_json "fqbn" "${elf}"
+  # readarray -td, fqbn < <( jq -r ".fqbn" ${elfpath}/build.options.json )
+  fqbn="$( jq -r ".fqbn" ${elfpath}/build.options.json ),end="
+  echo "${fqbn%,end=}" | tr "," "\n"
+  BUILD_ARCH="${fqbn#*:}"
+  BUILD_ARCH="${BUILD_ARCH%:*}"
+  BUILD_BOARD_ID="${BUILD_ARCH#*:}"
+  BUILD_ARCH="${BUILD_ARCH%:*}"
+  BUILD_BOARD=$( grep -nm1 "${BUILD_BOARD_ID}.build.board=" "${platform_path}/boards.txt" )
+  BUILD_BOARD="${BUILD_BOARD#*=}"
+
+  [[ -n "${BUILD_ARCH}" ]] && ARDUINO_ARCH="-DARDUINO_ARCH_${BUILD_ARCH^^}"
+  [[ -n "${BUILD_BOARD_ID}" ]] && ARDUINO_BOARD_ID="-DARDUINO_ID=\"${BUILD_BOARD_ID}\""
+  [[ -n "${BUILD_BOARD}" ]] && ARDUINO_BOARD="-DARDUINO_BOARD_${BUILD_BOARD}"
+  [[ -n "${BUILD_BOARD}" ]] && ARDUINO_BOARD_NAME="-DARDUINO_BOARD=\"${BUILD_BOARD}\""
+
+  TOOLS_MENU="$ARDUINO_ARCH $ARDUINO_BOARD_ID $ARDUINO_BOARD $ARDUINO_BOARD_NAME"
+  TOOLS_MENU="${TOOLS_MENU}$( get_flags_from_board_txt led "${platform_path}/boards.txt" '' )"
+  TOOLS_MENU="${TOOLS_MENU}$( get_flags_from_board_txt float_support "${platform_path}/boards.txt" '' )"
+  TOOLS_MENU="${TOOLS_MENU}$( get_flags_from_board_txt CrystalFreq "${platform_path}/boards.txt" 'extra_flags' )"
+  TOOLS_MENU="${TOOLS_MENU}$( get_flags_from_board_txt FlashMode "${platform_path}/boards.txt" 'flash_flags' )"
+  TOOLS_MENU="${TOOLS_MENU}$( get_flags_from_board_txt dbg "${platform_path}/boards.txt" 'debug_port' )"
+  TOOLS_MENU="${TOOLS_MENU}$( get_flags_from_board_txt lvl "${platform_path}/boards.txt" 'debug_level' )"
+  TOOLS_MENU="${TOOLS_MENU}$( get_flags_from_board_txt ip "${platform_path}/boards.txt" 'lwip_flags' )"
+  TOOLS_MENU="${TOOLS_MENU}$( get_flags_from_board_txt vt "${platform_path}/boards.txt" 'vtable_flags' )"
+  TOOLS_MENU="${TOOLS_MENU}$( get_flags_from_board_txt exception "${platform_path}/boards.txt" 'exception_flags' )"
+  TOOLS_MENU="${TOOLS_MENU}$( get_flags_from_board_txt stacksmash "${platform_path}/boards.txt" 'stacksmash_flags' )"
+  TOOLS_MENU="${TOOLS_MENU}$( get_flags_from_board_txt ssl "${platform_path}/boards.txt" '' )"
+  TOOLS_MENU="${TOOLS_MENU}$( get_flags_from_board_txt mmu "${platform_path}/boards.txt" '' )"
+  TOOLS_MENU="${TOOLS_MENU}$( get_flags_from_board_txt non32xfer "${platform_path}/boards.txt" '' )"
+  VAR=$( get_flags_from_board_txt xtal "${platform_path}/boards.txt" 'f_cpu' )
+  TOOLS_MENU="${TOOLS_MENU} -DF_CPU=${VAR:1}"
+  VAR=$( get_flags_from_board_txt sdk "${platform_path}/boards.txt" 'sdk' )
+  [[ -n "${VAR}" ]] && TOOLS_MENU="${TOOLS_MENU} -D${VAR:1}=1"
+  [[ " " == "${TOOLS_MENU:0:1}" ]] && TOOLS_MENU="${TOOLS_MENU:1}"
+  echo "TOOLS_MENU='${TOOLS_MENU}'"
+  read -n1 anykey
 }
 
 function do_viewer_dialog() {
@@ -437,15 +572,59 @@ function do_addr2line() {
     echo "Paste below the backtrace line."
     echo "Terminate the list with an <CTRL-D> at the start of a new line."
     echo ""
+    # INPUT=$( cat |
+    #   sed -n -e 's/[[:space:],:=]/\n/pg' |
+    #   grep -E "^0x[a-f0-9]{8}$" |
+    #   grep -v "0x00000000" | grep -v "0x3ff" )
+    INPUT=$( cat |
+      sed -n -e 's/[[:space:],:=]/\n/pg' |
+      grep -E "^0x[a-f0-9]{8}$" |
+      grep "0x40" )
+    echo ""
+
+    ${ESP_TOOLCHAIN_ADDR2LINE} -pfiaC -e $1 $INPUT >$addr2line_output
+  else
+    ${ESP_TOOLCHAIN_ADDR2LINE} -pfiaC -e $* >$addr2line_output
+  fi
+}
+
+function do_decoder() {
+  ESP_TOOLCHAIN_ADDR2LINE=$( get_hardware_tool_path "addr2line" "${@: -1}" )
+  ESP_TOOLCHAIN_PREFIX="${ESP_TOOLCHAIN_ADDR2LINE%addr2line}"
+  ESP_DECODER=$( realpath "${ESP_TOOLCHAIN_ADDR2LINE%/*}/../../decoder.py" )
+
+  if [[ -x "${ESP_DECODER}" && -f "${ESP_DECODER}" ]]; then
+    :
+  else
+    clear
+    echo -e "\n\nError with identity: ${myname}"
+    echo -e "file not executable or missing: $ESP_DECODER\n"
+    read -n1 anykey
+    return
+  fi
+
+  if [[ $# -eq 1 ]]; then
+    clear
+    echo "Paste below the backtrace line."
+    echo "Terminate the list with an <CTRL-D> at the start of a new line."
+    echo ""
     INPUT=$( cat |
       sed -n -e 's/[[:space:],:=]/\n/pg' |
       grep -E "^0x[a-f0-9]{8}$" |
       grep -v "0x00000000" | grep -v "0x3ff" )
     echo ""
 
-    ${ESP_TOOLCHAIN_ADDR2LINE} -pfiaC -e $1 $INPUT >$addr2line_output
+    echo "$INPUT" | \
+      ${ESP_DECODER} \
+        --elf-path $1 \
+        --toolchain-path "${ESP_TOOLCHAIN_ADDR2LINE}" \
+        --tool "${ESP_TOOLCHAIN_ADDR2LINE}" >$addr2line_output
   else
-    ${ESP_TOOLCHAIN_ADDR2LINE} -pfiaC -e $* >$addr2line_output
+    echo "$*" | \
+      ${ESP_DECODER} \
+        --elf-path $1 \
+        --toolchain-path "${ESP_TOOLCHAIN_ADDR2LINE}" \
+        --tool "${ESP_TOOLCHAIN_ADDR2LINE}" >$addr2line_output
   fi
 }
 
@@ -469,7 +648,7 @@ function do_unasm() {
   esp_toolchain_objdump=$( get_hardware_tool_path "objdump" "${@: -1}" )
   # echo ${esp_toolchain_objdump} -d ${ADDR} $*
   # read -n1 anyway
-  ${esp_toolchain_objdump} -d ${ADDR} $* | less -i ${PATTERN}
+  ${esp_toolchain_objdump} -xsD ${ADDR} $* | less -i ${PATTERN}
 }
 
 declare -a filehistory
@@ -564,6 +743,11 @@ function do_main_dialog() {
       do_file_viewer "$file" $addr2line_output
       rc=$?
       [[ "$rc" -eq 1 ]] && rc=0
+    elif [[ "decoder" == "${myname}" ]]; then
+      do_addr2line "$file" $*
+      do_file_viewer "$file" $addr2line_output
+      rc=$?
+      [[ "$rc" -eq 1 ]] && rc=0
     elif [[ "idf_monitor" == "${myname}" ]]; then
       do_idf_monitor $* "$file"
       # idf_monitor.py trashed the default character set selection
@@ -571,6 +755,8 @@ function do_main_dialog() {
       # export LANG=en_US.UTF-8
       # export LC_CTYPE=en_US.utf8
       reset # really slow
+    elif [[ "mklintergccflags" == "${myname}" ]]; then
+      do_mk_gcc_flags_json $* "$file"
     else
       clear
       echo -e "\n\nUnkown identity: ${myname}\n"
