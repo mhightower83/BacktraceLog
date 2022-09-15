@@ -1,11 +1,16 @@
 /*
   TraceCallAlt
 
-  While similar to the `TraceCall.ino` example,
-  In this example we do *not* use the higher level BacktraceLog, instead we use
-  APIs in `backtrace.h` directly to capture the call state information before the
-  NONOS SDK has finished initializing. While this lower level is seldom needed,
-  it can be accomodated.
+  While similar to the `TraceCall.ino` example, in this example we do *not* use
+  the higher level BacktraceLog, instead we use APIs in `backtrace.h` directly
+  to capture the call state information before the NONOS SDK has finished
+  initializing. While this lower level is seldom needed, it can be accomodated.
+
+  This example showcases xt_retaddr_callee_ex(), which returns an estimated
+  start of the function address. In the backtrace report, we print this
+  information between "< >" marks. Note, sometimes the address is off by a few
+  instructions because of register preload instructions before the stack frame
+  setup instructions.
 
   Our backtrace will be logged to the serial console only. The wrong CPU XTAL
   clock speed will need to be compensated for when printing. While the Boot ROM

@@ -1,8 +1,5 @@
 
 #include <Arduino.h>
-// #include <ESP8266WiFi.h>
-// #include <ESP8266mDNS.h>
-// #include <Esp.h>
 #include <backtrace.h>
 #include <esp8266_undocumented.h>
 
