@@ -314,6 +314,7 @@ void backtraceLog_clear(void) {
 void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t stack_end) {
     (void)stack_end;
     void *i_pc, *i_sp, *lr, *pc, *sp;
+    [[maybe_unused]] void *fn;
     int repeat;
 
     if (NULL == pBT) {
@@ -346,7 +347,8 @@ void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t 
             i_pc = pc;
             i_sp = sp;
             ETS_PRINTF2(" %p:%p", i_pc, i_sp);
-            repeat = xt_retaddr_callee(i_pc, i_sp, NULL, &pc, &sp);
+            repeat = xt_retaddr_callee_ex(i_pc, i_sp, NULL, &pc, &sp, &fn);
+            if (fn) { ETS_PRINTF2(":<%p>", fn); }
         } while (repeat > 0);
         ETS_PRINTF2("\n");
         ETS_PRINTF2("  Frame: 0x%08x, Backtrace Frame: 0x%08x\n", (uintptr_t)frame, (uint32_t)i_sp);
@@ -385,7 +387,9 @@ void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t 
         ETS_PRINTF2(" %p:%p", pc, sp);
         SHOW_PRINTF(" %p:%p", pc, sp);
         backtraceLog_write(pc);
-        repeat = xt_retaddr_callee(pc, sp, lr, &pc, &sp);
+        repeat = xt_retaddr_callee_ex(pc, sp, lr, &pc, &sp, &fn);
+        if (fn) { ETS_PRINTF2(":<%p>", fn); }
+        if (fn) { SHOW_PRINTF(":<%p>", fn); }  // estimated start of the function
         lr = NULL;
     } while(repeat);
     if (g_pcont->pc_suspend) {
@@ -401,7 +405,9 @@ void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t 
             ETS_PRINTF2(" %p:%p", pc, sp);
             SHOW_PRINTF(" %p:%p", pc, sp);
             backtraceLog_write(pc);
-            repeat = xt_retaddr_callee(pc, sp, NULL, &pc, &sp);
+            repeat = xt_retaddr_callee_ex(pc, sp, NULL, &pc, &sp, &fn);
+            if (fn) { ETS_PRINTF2(":<%p>", fn); }
+            if (fn) { SHOW_PRINTF(":<%p>", fn); }
         } while(repeat);
     }
     backtraceLog_fin();
@@ -518,14 +524,6 @@ void umm_init_iram(void) {
     if (sec_heap.sz) {
         umm_init_iram_ex((void *)sec_heap.addr, sec_heap.sz, true);
     }
-
-#if DEBUG_ESP_BACKTRACELOG_USE_NON32XFER_EXCEPTION
-#if defined(NON32XFER_HANDLER) || defined(MMU_IRAM_HEAP)
-    // Already handled from user_init()
-#else
-    install_non32xfer_exception_handler();
-#endif
-#endif
 }
 
 #else // #if defined(MMU_IRAM_HEAP)
@@ -538,14 +536,6 @@ void SHARE_PREINIT__DEBUG_ESP_BACKTRACELOG(void) {
     DEBUG_ESP_BACKTRACELOG_IRAM_RESERVE_CB(iram_buffer.addr, iram_buffer.sz);
 #else
     (void)set_pBT();
-#endif
-
-#if DEBUG_ESP_BACKTRACELOG_USE_NON32XFER_EXCEPTION
-#if defined(NON32XFER_HANDLER) || defined(MMU_IRAM_HEAP)
-    // Already handled from user_init()
-#else
-    install_non32xfer_exception_handler();
-#endif
 #endif
 }
 #endif // #if defined(MMU_IRAM_HEAP)

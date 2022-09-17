@@ -7,6 +7,11 @@
 // The APIs must be available at all times.
 -DBACKTRACE_IN_IRAM=1
 
+
+
+// -DDEBUG_ESP_BACKTRACE_CPP=1
+
+
 */
 
 /*@create-file:build.opt:debug@

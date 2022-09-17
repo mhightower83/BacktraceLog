@@ -497,10 +497,20 @@ function do_viewer_dialog() {
   fi
   if [[ $DIALOG_OK == $rc ]]; then
     if [[ 0 -eq $LINE_NO ]]; then
-      if [[ -n "$FUNC_NAME" ]]; then
+      FUNC_ADDR=$( grep "${ADDR}:" $backtrace_input )
+      FUNC_ADDR="${FUNC_ADDR##*:<0x}"
+      FUNC_ADDR="${FUNC_ADDR%%>*}"
+      if [[ -n "$FUNC_ADDR" ]]; then
+        if [[ -n "$FUNC_NAME" ]]; then
+          do_unasm --lite-up "${ADDR}:|${FUNC_ADDR}:|<${FUNC_NAME}>:" "--start-address=0x${FUNC_ADDR}" $1
+        else
+          do_unasm --lite-up "${ADDR}:|${FUNC_ADDR}:" "--start-address=0x${FUNC_ADDR}" $1
+        fi
+      elif [[ -n "$FUNC_NAME" ]]; then
         do_unasm --lite-up "<${FUNC_NAME}>:|${ADDR}:" "--disassemble=$FUNC_NAME" $1
       else
-        do_unasm --lite-up "${ADDR}:" $1
+        BACK_ADDR=$( printf "%08x" $(( 0x${ADDR} - 256 )) )
+        do_unasm --lite-up "${ADDR}:" "--start-address=0x${BACK_ADDR}" $1
       fi
     elif [[ -n "$FILE_NAME" ]]; then
       add2filehistory "$FILE_NAME"
@@ -576,10 +586,20 @@ function do_addr2line() {
     #   sed -n -e 's/[[:space:],:=]/\n/pg' |
     #   grep -E "^0x[a-f0-9]{8}$" |
     #   grep -v "0x00000000" | grep -v "0x3ff" )
-    INPUT=$( cat |
+    # INPUT=$( cat |
+    #   sed -n -e 's/[[:space:],:=]/\n/pg' |
+    #   grep -E "^0x[a-f0-9]{8}$" |
+    #   grep "0x40" )
+      # cat | $backtrace_input
+      # INPUT=$( cat $backtrace_input |
+      #   sed -n -e 's/[[:space:],:=]/\n/pg' |
+      #   grep -E "^0x40[a-f0-9]{6}$" )
+      #   # grep -E "^0x40[a-f0-9]{6}$|^<0x40[a-f0-9]{6}>$"
+    cat |
       sed -n -e 's/[[:space:],:=]/\n/pg' |
-      grep -E "^0x[a-f0-9]{8}$" |
-      grep "0x40" )
+      grep -E "^0x40[a-f0-9]{6}$|^<0x40[a-f0-9]{6}>$" |
+      sed ':a; N; $!b a; s/\n</:</g' >$backtrace_input
+    INPUT=$( cat $backtrace_input | cut -d: -f1 )
     echo ""
 
     ${ESP_TOOLCHAIN_ADDR2LINE} -pfiaC -e $1 $INPUT >$addr2line_output
@@ -837,11 +857,12 @@ function make_main_menu() {
 
 # From https://unix.stackexchange.com/a/70868
 
-#make some temporary files
+# make some temporary files
 arduino_elfs_found=$(mktemp)
 addr2line_output=$(mktemp)
 menu_config=$(mktemp)
 temp_io=$(mktemp)
+backtrace_input=$(mktemp)
 lastfile=""
 menu_sketch_idx=1
 menu_viewer_idx=1
@@ -851,6 +872,7 @@ maxwidth=20
 trap "rm $arduino_elfs_found;
       rm $addr2line_output;
       rm $temp_io;
+      rm $backtrace_input;
       rm $menu_config;" SIGHUP SIGINT SIGTERM
 
 if [[ "--help" == "${1}" ]]; then
@@ -895,6 +917,7 @@ fi
 [ -f $addr2line_output ] && rm $addr2line_output
 [ -f $menu_config ] && rm $menu_config
 [ -f $temp_io ] && rm $temp_io
+[ -f $backtrace_input ] && rm $backtrace_input
 
 exit 0
 

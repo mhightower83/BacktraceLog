@@ -47,7 +47,7 @@ It accepts a backtrace by way of a copy/paste. After paste, you will need to clo
 
 The results are display via `dialog` which allows you to select a decoded line for expanded viewing.
 * When sources are available, the source file is shown using `less`.
-* When the source file name is unknown, the function is disassembled from the `.elf` file.
+* When the source file name is unknown, the function address or function name is disassembled from the `.elf` file.
 * If the function name is unknown, the whole `.eft` file is disassembled and presented with `less` positioned at the return address.
 * If the address is in the Boot ROM, an annotated Boot ROM listing is used. (you need to download one as part of your install.)
 

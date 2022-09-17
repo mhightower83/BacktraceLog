@@ -34,6 +34,7 @@
 #include <stddef.h>
 
 #include <c_types.h>
+#include <esp8266_peri.h>
 #include <esp8266_undocumented.h>
 #include <mmu_iram.h>
 
@@ -44,7 +45,7 @@
 #endif
 
 #ifndef BACKTRACE_MAX_LOOKBACK
-#define BACKTRACE_MAX_LOOKBACK 512
+#define BACKTRACE_MAX_LOOKBACK 1024
 #endif
 
 #ifdef DEBUG_ESP_BACKTRACE_CPP
@@ -81,8 +82,7 @@ IRAM_ATTR int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *
 IRAM_ATTR int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp, void **o_fn);
 IRAM_ATTR struct BACKTRACE_PC_SP xt_return_address_ex(int lvl);
 IRAM_ATTR void *xt_return_address(int lvl);
-inline int idx(void *a, uint32_t b) __attribute__((always_inline));
-inline int sidx(void *a, uint32_t b) __attribute__((always_inline));
+IRAM_ATTR static uint8_t _idx(void *a);
 #endif
 
 // Stay on the road. Return 0 for not a valid code pointer,
@@ -122,16 +122,43 @@ int xt_pc_is_valid(const void *pc)
 }
 
 
-#if DEBUG_ESP_BACKTRACELOG_USE_NON32XFER_EXCEPTION
-// Do byte pointer accesses and let the Exception handler resolve each read
-// into a 32-bit access.
-inline int idx(void *a, uint32_t b) { return ((uint8_t*)a)[b]; }
-inline int sidx(void *a, uint32_t b) { return ((sint8_t*)a)[b]; }
-#else
-// Use performance macros to access IRAM byte data w/o generating an exception.
-inline int idx(void *a, uint32_t b) { return mmu_get_uint8((void*)((uintptr_t)(a) + (b))); }
-inline int sidx(void *a, uint32_t b) { return ((sint8_t)mmu_get_uint8((void*)((uintptr_t)(a) + (b)))); }
+#if BACKTRACE_IN_IRAM
+#define CACHE_READ_EN_BIT               BIT8    // eagle_soc.h in RTOS_SDK
+
+#ifndef ROM_SPIRead
+#define ROM_SPIRead         0x40004b1cU
 #endif
+typedef int (*fp_SPIRead_t)(uint32_t addr, void *dest, size_t size);
+#define real_SPIRead ((fp_SPIRead_t)ROM_SPIRead)
+
+// Use performance macros to access IRAM byte data w/o generating an exception.
+static uint8_t _idx(void *c) {
+    static uintptr_t addr = 0;
+    static uint8_t data[4] __attribute__((aligned(4)));
+
+    if (FLASH_BASE > (uintptr_t)c || (SPIRDY & CACHE_READ_EN_BIT)) {
+        return mmu_get_uint8(c);
+    } else if ((FLASH_BASE + 1024*1024) > (uintptr_t)c) {
+        // We have to directly read from flash
+        if (((uintptr_t)c & ~3) != addr) {
+            addr = (uintptr_t)c & ~3;
+            real_SPIRead(addr - FLASH_BASE, &data[0], sizeof(data));
+        }
+        return data[(uintptr_t)c & 3u];
+    }
+    return 0;
+}
+
+#else
+static inline uint8_t _idx(void *a) __attribute__((always_inline));
+static inline uint8_t _idx(void *a) { return mmu_get_uint8(a); }
+#endif
+
+static inline int idx(void *a, uint32_t b) __attribute__((always_inline));
+static inline int sidx(void *a, uint32_t b) __attribute__((always_inline));
+
+static inline int idx(void *a, uint32_t b) { return _idx((void*)((uintptr_t)a + b)); }
+static inline int sidx(void *a, uint32_t b) { return (sint8_t)_idx((void*)((uintptr_t)a + b)); }
 
 static int find_addim_ax_a1(uint32_t pc, uint32_t off, int ax) {
     // returns an additional adjustment, if any, to reach a0 stored value
@@ -227,8 +254,9 @@ int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, v
     uint32_t pc = (uint32_t)i_pc;
     uint32_t sp = (uint32_t)i_sp;
     uint32_t fn = 0;
+    *o_fn = (void*)fn;
 
-    uint32_t off = 0;
+    uint32_t off = 2;
     const uint32_t text_size = prev_text_size(pc);
 
     // Most of the time "lr" will be set to the value in register "A0" which
@@ -253,6 +281,7 @@ int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, v
     {
         pc = (uint32_t)i_pc;
         sp = (uint32_t)i_sp;
+        fn = 0;
 
         // Scan backward 1 byte at a time looking for a stack reserve or ret.n
         // This requires special handling to read IRAM/IROM/FLASH 1 byte at a time.
@@ -263,15 +292,17 @@ int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, v
             // interesting to see what the interrupt did to cause an exception.
             // When we need to look behind an Exception frame, those start point
             // values are passed in.
-            uint8_t *pb = (uint8_t *)(pc - off);
+            uint8_t *pb = (uint8_t *)((uintptr_t)pc - off);
             //
             // 12 c1 xx   ADDI a1, a1, -128..127
             //
             if (idx(pb, 0) == 0x12 && idx(pb, 1) == 0xc1) {
                 const int stk_size = sidx(pb, 2); //((int8_t *)pb)[2];
+                //? ETS_PRINTF("\nmaybe - addi: pb 0x%08X, stk_size: %d\n", (uint32_t)pb, stk_size);
 
                 // Skip ADDIs that are clearing previous stack usage or not a multiple of 16.
                 if (stk_size >= 0 || stk_size % 16 != 0) {
+                    //? ETS_PRINTF("\nstk_size: %d, (%% 16 = %d)\n", stk_size, stk_size % 16);
                     continue;
                 }
                 // Negative stack size, stack space creation/reservation and multiple of 16
@@ -289,21 +320,23 @@ int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, v
                     } else {
                         uint32_t *sp_a0 = (uint32_t *)((uintptr_t)sp + (uintptr_t)a0_offset);
                         ETS_PRINTF("\naddi: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d, %p(0x%08x)\n", pc, sp, stk_size, a0_offset, sp_a0, *sp_a0);
-                        fn = pc - off;
+                        fn = (pc - off) & ~3;
                         pc = *sp_a0;
                     }
                 }
 #else
                 int a0_offset = find_s32i_a0_a1(pc, off);
                 if (a0_offset < 0) {
+                    //? ETS_PRINTF("\n!addi: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d\n", pc, sp, stk_size, a0_offset);
                     continue;
                     // pc = lr;
                 } else if (a0_offset >= -stk_size) {
+                    //? ETS_PRINTF("\n!addi: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d\n", pc, sp, stk_size, a0_offset);
                     continue;
                 } else {
                     uint32_t *sp_a0 = (uint32_t *)((uintptr_t)sp + (uintptr_t)a0_offset);
                     ETS_PRINTF("\naddi: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d, %p(0x%08x)\n", pc, sp, stk_size, a0_offset, sp_a0, *sp_a0);
-                    fn = pc - off;
+                    fn = (pc - off) & ~3; // function entry points are aligned 4
                     pc = *sp_a0;
                 }
 #endif
@@ -329,7 +362,9 @@ int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, v
             //
             if ((idx(pb, 0) & 0x0F) == 0x02 && (idx(pb, 1) & 0xF0) == 0xa0) {
                 int stk_size = ((idx(pb, 1) & 0x0F)<<8) + idx(pb, 2);
-                if (!stk_size || stk_size >= 2048) {
+                //? ETS_PRINTF("\nmaybe - movi: pb 0x%08X, stk_size: %d\n", (uint32_t)pb, stk_size);
+
+                if (0 == stk_size || stk_size >= 2048) {
                     // Zero or negative keep looking
                     continue;
                 }
@@ -349,23 +384,24 @@ int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, v
                     }
                 }
                 if (!found) {
+                    //? ETS_PRINTF("\n!found sub\n");
                     continue;
                 }
 
                 int a0_offset = find_s32i_a0_a1(pc, off);
                 if (a0_offset < 0) {
                     // pc = lr;
-                    // ETS_PRINTF("\n!sub: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d\n", pc, sp, stk_size, a0_offset);
+                    //? ETS_PRINTF("\n!sub: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d\n", pc, sp, stk_size, a0_offset);
                     continue;
                 } else if (a0_offset >= stk_size) {
-                    // ETS_PRINTF("\n!sub: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d\n", pc, sp, stk_size, a0_offset);
+                    //? ETS_PRINTF("\n!sub: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d\n", pc, sp, stk_size, a0_offset);
                     continue;
                 } else {
                     // fn = pc - off;
                     // pc = *(uint32_t *)(sp + a0_offset);
                     uint32_t *sp_a0 = (uint32_t *)((uintptr_t)sp + (uintptr_t)a0_offset);
                     ETS_PRINTF("\nsub: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d, %p(0x%08x)\n", pc, sp, stk_size, a0_offset, sp_a0, *sp_a0);
-                    fn = pc - off;
+                    fn = (pc - off) & ~3; // function entry points are aligned 4
                     pc = *sp_a0;
                 }
 
@@ -426,8 +462,15 @@ int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, v
                 continue;
             }
         }
-        if (xt_pc_is_valid((void *)pc))
+        if (off >= text_size) {
+            ETS_PRINTF("\n >=text_size: 0x%08X(%d) off: 0x%08X - sp: 0x%08x, pc: 0x%08x, fn: 0x%08x\n", text_size, text_size, off, sp, pc, fn);
             break;
+        } else
+        if (xt_pc_is_valid((void *)pc)) {
+            break;
+        } else {
+            ETS_PRINTF("\n!valid - sp: 0x%08x, pc: 0x%08x, fn: 0x%08x\n", sp, pc, fn);
+        }
     }
 
     //
@@ -443,6 +486,9 @@ int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, v
             // evaluate what to do next.
             return 1;
         }
+        ETS_PRINTF("\n!valid2 - sp: 0x%08x, pc: 0x%08x, fn: 0x%08x\n", sp, pc, fn);
+    } else {
+        ETS_PRINTF("\n >=text_size2: 0x%04X(%d) - sp: 0x%08x, pc: 0x%08x, fn: 0x%08x\n", text_size, text_size, sp, pc, fn);
     }
 
     return 0;

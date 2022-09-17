@@ -1,11 +1,13 @@
 # Backtrace Log
 BacktraceLog condenses the large stack dump to a form more easily stored or carried forward to the next boot cycle for deferred retrieval. BacktraceLog can store in an IRAM or DRAM log buffer. The log buffer can optionally be backed up to User RTC memory and persist across deep sleep.
 
+While BacktraceLog can retain crash information across boot cycles, it has other build configurations. You can also print the backtrace at the time of the crash. You can choose to print non-crash call traces at any time and keep running without saving the information.
+
 "Backtrace" refers to a series of program execution addresses printed on a single line. These may represent the return points of each nested function call going backward from the crash address. To generate a report of source code locations, provide the list of addresses to a utility like `addr2line`.
 
 Because of compiler optimizations, the call list may have gaps. The same problem exists with the "ESP Exception Decoder" using a full stack dump. Some optimization changes like adding `-fno-optimize-sibling-calls` can improve the backtrace report. This one has the downside of increasing Stack usage.
 
-BacktraceLog works through a postmortem callback. It stores and optionally prints a backtrace. The backtrace process extracts data by scanning the stack and machine code, looking at each stack frame for size and a return addresses. When occurring in a leaf function, WDT faults are challenging. A leaf function can hide an infinite loop from this method. The leaf function does not need to store the return address on the Stack. AS a leaf function register `a0` is never overwritten by a function call. Adding an empty Extended ASM line, `asm volatile("" ::: "a0", "memory");`, near the top of these functions, can persuade the compiler to store the return address on the Stack.
+BacktraceLog works through a postmortem callback. It stores and optionally prints a backtrace. The backtrace process extracts data by scanning the stack and machine code, looking at each stack frame for size and a return addresses. When occurring in a leaf function, WDT faults are challenging. A leaf function can hide an infinite loop from this method. A leaf function free of the concern of register `a0` overwritten by a function call, does not need to store the return address on the Stack. Adding an empty Extended ASM line, `asm volatile("" ::: "a0", "memory");`, near the top of these functions, can persuade the compiler to store the return address on the Stack.
 
 The BacktraceLog library can add up to about 3K bytes to the total sketch size. Of that, a minor 188 bytes is added to support the RTC memory backup. To temporarily disable the BacktraceLog library, set `-DDEBUG_ESP_BACKTRACELOG_MAX=0` in the build options. This library requires the use of global build options like that supported by a [`<sketch name>.ino.globals.h`](https://arduino-esp8266.readthedocs.io/en/latest/faq/a06-global-build-options.html?highlight=build.opt#how-to-specify-global-build-defines-and-options) file.
 
@@ -80,7 +82,12 @@ These are build options you can add to your `<sketche name>.ino.globals.h` file
 Enables backtrace logging by defining the maximum number of entries/levels/depth. Minimum value is 4. Values above 0 and less than 4 are processed as 4.
 
 ## `-DDEBUG_ESP_BACKTRACELOG_SHOW=1`
-Print BacktraceLog report after postmortem stack dump.
+Print BacktraceLog report after postmortem stack dump. This option will show additional information: `PC:SP:<function addr>`
+* `PC` - Program counter
+* `SP` - Stack pointer, register a1
+* `<function addr>` - An estimated address for the start of the function
+
+Due to limited resources on the ESP8266, we only save `PC` to the long lived buffer.
 
 ## `-DDEBUG_ESP_BACKTRACELOG_USE_IRAM_BUFFER=1`
 The backtrace can be stored in DRAM or IRAM. The default is DRAM. To select IRAM add this option.
@@ -100,8 +107,10 @@ When doing OTA upgrades, the first 32 words of the user data area is used by `eb
 
 For the reset function, some Development Boards toggle `CH_PD`/`CH_EN`, Chip Power Down, instead of `EXT_RST`, resulting in loss of RTC memory content.
 
-## `-DDEBUG_ESP_BACKTRACELOG_USE_NON32XFER_EXCEPTION=1`
-The downside of using the non32xfer exception handler is the added stack loading to handle the exception. Thus, requiring an additional 272 bytes of stack space. Not using the exception handler only increases BacktrackLog code size by 104 bytes of FLASH code space. _I am not sure this option should be available._ It defaults to off.
+## Non-32bit transfer exception handler
+To avoid library failure in complex use cases, this feature is not used by this library. When the build option is selected, the feature is available to the rest of your sketch.
+
+Removed: ~`-DDEBUG_ESP_BACKTRACELOG_USE_NON32XFER_EXCEPTION=1` The downside of using the non32xfer exception handler is the added stack loading to handle the exception. Thus, requiring an additional 272 bytes of stack space. Not using the exception handler only increases BacktrackLog code size by 104 bytes of FLASH code space. _I am not sure this option should be available._ It defaults to off.~
 
 ## `-DSHARE_PREINIT__DEBUG_ESP_BACKTRACELOG="backtaceLog_preinit"`
 The BacktraceLog libary needs to be called as part of preinit. If you already have a `preinit()` function defined, add this define with an alternate function name for BacktraceLog to use and call that function from your `preinit()`.
