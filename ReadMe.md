@@ -112,9 +112,19 @@ To avoid library failure in complex use cases, this feature is not used by this 
 
 Removed: ~`-DDEBUG_ESP_BACKTRACELOG_USE_NON32XFER_EXCEPTION=1` The downside of using the non32xfer exception handler is the added stack loading to handle the exception. Thus, requiring an additional 272 bytes of stack space. Not using the exception handler only increases BacktrackLog code size by 104 bytes of FLASH code space. _I am not sure this option should be available._ It defaults to off.~
 
-## `-DSHARE_PREINIT__DEBUG_ESP_BACKTRACELOG="backtaceLog_preinit"`
-The BacktraceLog libary needs to be called as part of preinit. If you already have a `preinit()` function defined, add this define with an alternate function name for BacktraceLog to use and call that function from your `preinit()`.
+## `-DSHARE_PREINIT__DEBUG_ESP_BACKTRACELOG="..."`
+Function `preinit()` is called from `user_init()` in `core_esp8266_main.cpp`. A weak empty function exist in `core_esp8266_main.cpp`.
+The BacktraceLog libary needs to be called as part of preinit. If you already have a `preinit()` function defined, add this define with an alternate function name for BacktraceLog to use and call this function from your `preinit()`.
+
 ```cpp
+// Your Sketch.ino.globals.h file
+/*@create-file:build.opt@
+-DSHARE_PREINIT__DEBUG_ESP_BACKTRACELOG="backtaceLog_preinit"`
+...
+*/
+```
+```cpp
+// Your existing preinit()
 void preinit(void) {
   SHARE_PREINIT__DEBUG_ESP_BACKTRACELOG();
   ...
