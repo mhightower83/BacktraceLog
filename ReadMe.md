@@ -149,6 +149,7 @@ This function is at the core of BacktraceLog. Given a `i_pc` and `i_sp`, it sear
 ```
 12 c1 xx   ADDI a1, a1, -128..127
 r2 Ax yz   MOVI r, -2048..2047
+80 00 00   RET
 0d f0      RET.N
 ```
 Additional patterns are used to verify the find; however, the results can sometimes fail to yield a valid PC value. Two defines control/limit the search `BACKTRACE_MAX_LOOKBACK` and `BACKTRACE_MAX_RETRY`, preventing an endless search or too early fail.

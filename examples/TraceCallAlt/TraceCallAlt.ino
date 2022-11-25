@@ -34,6 +34,7 @@
 #include <Arduino.h>
 #include <Esp.h>
 #include <backtrace.h>
+extern "C" void logCallTrace(void);
 
 void processKey(Print& out, int hotKey);
 
@@ -44,6 +45,7 @@ void setup(void) {
   delay(200);    // This delay helps when using the 'Modified Serial monitor' otherwise it is not needed.
   Serial.printf_P(PSTR("\r\n\r\nExample TraceCallAlt - demo function call traceback ...\r\n\r\n"));
   Serial.println();
+  logCallTrace();
 }
 
 void loop(void) {

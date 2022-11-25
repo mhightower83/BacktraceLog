@@ -313,8 +313,8 @@ void backtraceLog_clear(void) {
 
 void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t stack_end) {
     (void)stack_end;
-    void *i_pc, *i_sp, *lr, *pc, *sp;
-    [[maybe_unused]] void *fn;
+    const void *i_pc, *i_sp, *lr, *pc, *sp;
+    [[maybe_unused]] const void *fn;
     int repeat;
 
     if (NULL == pBT) {
@@ -337,7 +337,7 @@ void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t 
         // exception frame could be stale.
         // Use this alternative method, backward search for the start of the
         // exception frame from here.
-        struct BACKTRACE_PC_SP pc_sp = xt_return_address_ex(0);
+        const struct BACKTRACE_PC_SP pc_sp = xt_return_address_ex(0);
         pc = pc_sp.pc;
         sp = pc_sp.sp;
 
@@ -607,7 +607,7 @@ void backtraceLog_fin(void) {
 #endif
 }
 
-void backtraceLog_write(void*pc) {
+void backtraceLog_write(const void * const pc) {
     if (NULL == pBT) return;
 
     if (pBT && pBT->log.max > pBT->log.count) {

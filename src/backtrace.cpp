@@ -78,10 +78,10 @@ IRAM_ATTR int xt_pc_is_valid(const void *pc);
 IRAM_ATTR static int find_s32i_a0_a1(uint32_t pc, uint32_t off);
 IRAM_ATTR static int find_addim_ax_a1(uint32_t pc, uint32_t off, int ax);
 IRAM_ATTR static bool verify_path_ret_to_pc(uint32_t pc, uint32_t off);
-IRAM_ATTR int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp);
-IRAM_ATTR int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp, void **o_fn);
+IRAM_ATTR int xt_retaddr_callee(const void * const i_pc, const void * const i_sp, const void * const i_lr, const void **o_pc, const void **o_sp);
+IRAM_ATTR int xt_retaddr_callee_ex(const void * const i_pc, const void * const i_sp, const void * const i_lr, const void **o_pc, const void **o_sp, const void **o_fn);
 IRAM_ATTR struct BACKTRACE_PC_SP xt_return_address_ex(int lvl);
-IRAM_ATTR void *xt_return_address(int lvl);
+IRAM_ATTR const void *xt_return_address(int lvl);
 IRAM_ATTR static uint8_t _idx(void *a);
 #endif
 
@@ -248,7 +248,7 @@ static bool verify_path_ret_to_pc(uint32_t pc, uint32_t off) {
 //
 // Returns true (1) on success
 // int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp)
-int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp, void **o_fn)
+int xt_retaddr_callee_ex(const void * const i_pc, const void * const i_sp, const void * const i_lr, const void **o_pc, const void **o_sp, const void **o_fn)
 {
     uint32_t lr = (uint32_t)i_lr; // last return ??
     uint32_t pc = (uint32_t)i_pc;
@@ -414,7 +414,7 @@ int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, v
             // back from the start "pc".
             //
             // 0d f0     RET.N
-            // 80 00 00  RET          # missing in orginal code!
+            // 80 00 00  RET          # missing in original code!
             //
             if ((idx(pb, 0) == 0x0d && idx(pb, 1) == 0xf0) ||
                 (idx(pb, 0) == 0x80 && idx(pb, 1) == 0x00 && idx(pb, 2) == 0x00)) {
@@ -493,19 +493,19 @@ int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, v
 
     return 0;
 }
-int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp)
+int xt_retaddr_callee(const void * const i_pc, const void * const i_sp, const void * const i_lr, const void **o_pc, const void **o_sp)
 {
-    void *o_fn; // ignored
+    const void *o_fn; // ignored
     return xt_retaddr_callee_ex(i_pc, i_sp, i_lr, o_pc, o_sp, &o_fn);
 }
 
 struct BACKTRACE_PC_SP xt_return_address_ex(int lvl)
 {
-    void *i_sp;
-    void *i_pc;
+    const void *i_sp;
+    const void *i_pc;
 
-    void *o_pc = NULL;
-    void *o_sp;
+    const void *o_pc = NULL;
+    const void *o_sp;
 
     __asm__ __volatile__(
       "mov  %[sp], a1\n\t"
@@ -533,18 +533,18 @@ struct BACKTRACE_PC_SP xt_return_address_ex(int lvl)
 
 
 #if 1
-void *xt_return_address(int lvl) {
+const void *xt_return_address(int lvl) {
     return xt_return_address_ex(lvl).pc;
 }
 #else
 
-void *xt_return_address(int lvl)
+const void *xt_return_address(int lvl)
 {
-    void *i_sp;
-    void *i_pc;
+    const void *i_sp;
+    const void *i_pc;
 
-    void *o_pc = NULL;
-    void *o_sp;
+    const void *o_pc = NULL;
+    const void *o_sp;
 
     __asm__ __volatile__(
       "mov  %[sp], a1\n\t"

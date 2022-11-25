@@ -41,12 +41,12 @@ int xt_pc_is_valid(const void *pc);
  *
  * @return 1 if found or 0 if not found
  */
-int xt_retaddr_callee(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp);
+int xt_retaddr_callee(const void * const i_pc, const void * const i_sp, const void * const i_lr, const void **o_pc, const void **o_sp);
 
 /*
  * @param o_fn  the detected current current function entry
  */
-int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, void **o_pc, void **o_sp, void **o_fn);
+int xt_retaddr_callee_ex(const void * const i_pc, const void * const i_sp, const void * const i_lr, const void **o_pc, const void **o_sp, const void **o_fn);
 
 /**
  * @brief These functions may be used to get information about the callers of a function.
@@ -62,13 +62,13 @@ int xt_retaddr_callee_ex(const void *i_pc, const void *i_sp, const void *i_lr, v
  *
  * @return the return address of the current function
  */
-void *xt_return_address(int lvl);
+const void *xt_return_address(int lvl);
 
 
 
 struct BACKTRACE_PC_SP {
-  void *pc;
-  void *sp;
+  const void *pc;
+  const void *sp;
 };
 /**
  * Similar to xt_return_address, except returns return address and matching

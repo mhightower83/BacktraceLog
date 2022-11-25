@@ -90,7 +90,7 @@ struct BACKTRACE_LOG {
     uint32_t crashCount;
     struct rst_info rst_info;
     uint32_t count;
-    void* pc[DEBUG_ESP_BACKTRACELOG_MAX];
+    const void *pc[DEBUG_ESP_BACKTRACELOG_MAX];
 };
 
 class BacktraceLog {
@@ -119,7 +119,7 @@ extern "C" void backtraceLog_clear(void);
 extern "C" void backtraceLog_begin(struct rst_info *reset_info); // reset_info=NULL is acceptable
 extern "C" void backtraceLog_append(void);
 extern "C" void backtraceLog_fin(void);
-extern "C" void backtraceLog_write(void*pc);
+extern "C" void backtraceLog_write(const void * const pc);
 
 #else // #if (DEBUG_ESP_BACKTRACELOG_MAX > 0)
 
@@ -153,7 +153,7 @@ void backtraceLog_append(void) {}
 static inline __attribute__((always_inline))
 void backtraceLog_fin(void) {}
 static inline __attribute__((always_inline))
-void backtraceLog_write(void*pc) { (void)pc; }
+void backtraceLog_write(const void * const pc) { (void)pc; }
 #endif // #if (DEBUG_ESP_BACKTRACELOG_MAX > 0)
 
 

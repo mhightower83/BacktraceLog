@@ -648,6 +648,55 @@ function do_decoder() {
   fi
 }
 
+function do_unasm2() { # WIP
+  ADDR=""
+  PATTERN=""
+  if [[ "${1:0:4}" == "0x40" ]]; then
+    ADDR="--start-address=${1}"
+    PATTERN="-p${1:2}"
+    shift
+  elif [[ "${1:0:2}" == "40" ]]; then
+    ADDR="--start-address=0x${1}"
+    PATTERN="-p${1}"
+    shift
+  fi
+
+  while [[ "--" = "${1:0:2}" ]]; do
+    # reminder "${1,,}" changes to all to lower case for simply match
+    case "${1,,}" in
+      --lite-up?(=*)) [[ "${1,,}" = "--lite-up" ]] && shift;
+      TMP="${1#--lite-up=}"; shift;
+      if [[ "-p" == "${PATTERN:0:2}" ]]; then
+        PATTERN="${PATTERN}|$TMP"
+      else
+        PATTERN="-p$TMP"
+      fi
+      ;;
+
+      -p?(=*)) [[ "$1" = "-p" ]] && shift;
+        ESP_USB_PORT="${1#-p=}"; shift; ;;
+      --usb-port?(=*)) [[ "$1" = "--usb-port" ]] && shift;
+        ESP_USB_PORT="${1#--usb-port=}"; shift; ;;
+      -s?(=*)) [[ "$1" = "-s" ]] && shift;
+        ESP_PORT_SPEED="${1#-s=}"; shift; ;;
+      --speed?(=*)) [[ "$1" = "--speed" ]] && shift;
+        ESP_PORT_SPEED="${1#--speed=}"; shift; ;;
+      # This is wrong! However, people think of it for BPS and will try it.
+      --baud?(=*)) [[ "$1" = "--baud" ]] && shift;
+        ESP_PORT_SPEED="${1#--baud=}"; shift; ;;
+      *) clear
+        echo -e "\nUnknown option: '${1} ${2}'\n"
+        print_help "idf_monitor"
+        read -n1 anykey
+        return; ;;
+    esac
+  done
+  esp_toolchain_objdump=$( get_hardware_tool_path "objdump" "${@: -1}" )
+  # echo ${esp_toolchain_objdump} -d ${ADDR} $*
+  # read -n1 anyway
+  ${esp_toolchain_objdump} -xsD ${ADDR} $* | less -i ${PATTERN}
+}
+
 function do_unasm() {
   if [[ "${1:0:4}" == "0x40" ]]; then
     ADDR="--start-address=${1}"
