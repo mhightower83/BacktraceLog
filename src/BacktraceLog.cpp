@@ -59,6 +59,27 @@
 #include <cont.h>
 #include "BacktraceLog.h"
 
+#ifndef ARDUINO_ESP8266_VERSION_DEC
+#ifdef ARDUINO_ESP8266_MAJOR
+#define ARDUINO_ESP8266_VERSION_DEC ( \
+  ARDUINO_ESP8266_MAJOR * 10000 + \
+  ARDUINO_ESP8266_MINOR *   100 + \
+  ARDUINO_ESP8266_REVISION          )
+#else
+// Assume current
+#define ARDUINO_ESP8266_VERSION_DEC 30100
+#endif
+#endif
+
+#if ARDUINO_ESP8266_VERSION_DEC > 30002
+#define PC_SUSPEND pc_suspend
+#define SP_SUSPEND sp_suspend
+#else
+// Arduino ESP8266 v3.0.2 and before
+#define PC_SUSPEND pc_ret
+#define SP_SUSPEND sp_ret
+#endif
+
 #if (DEBUG_ESP_BACKTRACELOG_MAX > 0)
 #include "backtrace.h"
 
@@ -392,15 +413,15 @@ void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t 
         if (fn) { SHOW_PRINTF(":<%p>", fn); }  // estimated start of the function
         lr = NULL;
     } while(repeat);
-    if (g_pcont->pc_suspend) {
+    if (g_pcont->PC_SUSPEND) {
         // Looks like we crashed while the Sketch was yielding.
         // Finish traceback on the cont (loop_wrapper) stack.
         ETS_PRINTF2(" 0:0");  // mark transistion
         SHOW_PRINTF(" 0:0");
         backtraceLog_write(NULL);
         // Extract resume context to traceback - see cont_continue in cont.S
-        sp = (void*)((uintptr_t)g_pcont->sp_suspend + 24u);   // a1
-        pc = *(void**)((uintptr_t)g_pcont->sp_suspend + 16u); // a0
+        sp = (void*)((uintptr_t)g_pcont->SP_SUSPEND + 24u);   // a1
+        pc = *(void**)((uintptr_t)g_pcont->SP_SUSPEND + 16u); // a0
         do {
             ETS_PRINTF2(" %p:%p", pc, sp);
             SHOW_PRINTF(" %p:%p", pc, sp);
