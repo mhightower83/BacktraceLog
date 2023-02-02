@@ -40,6 +40,8 @@
 
 #include "backtrace.h"
 
+#pragma GCC optimize("Os")
+
 #ifndef BACKTRACE_MAX_RETRY
 #define BACKTRACE_MAX_RETRY 3
 #endif

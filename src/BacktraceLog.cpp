@@ -59,6 +59,8 @@
 #include <cont.h>
 #include "BacktraceLog.h"
 
+#pragma GCC optimize("Os")
+
 #ifndef ARDUINO_ESP8266_VERSION_DEC
 #ifdef ARDUINO_ESP8266_MAJOR
 #define ARDUINO_ESP8266_VERSION_DEC ( \

@@ -166,6 +166,8 @@ I don't expect the defaults to need overrides.
 Helpful build options, you can add to your `<sketche name>.ino.globals.h` file. Note, these options may create new problems by increased code, stack size, and execution time.
 
 ## `-fno-optimize-sibling-calls`
+When using the optimization `optimize-sibling-calls` and a function is going to return after a call, the compiler replaces the call instruction with a jump instruction. After a crash, there are no tracks left in the stack leading into the crash.
+
 Removing the optimization for "sibling and tail recursive calls" will clear up some gaps in the stack decoder report. Preserves stack frames created at each level as you call down to the next.
 
 This option is also beneficial when using the traditional method of copy/paste from the postmortem stack dump to the _ESP Exception Decoder_.
@@ -192,7 +194,7 @@ There are two possible cases for using this.
 Note well, `instrument-functions-exclude-file-list` substrings will also match to directories.
 
 For case 2 to link properly, you will need to add something like this:
-```
+```cpp
 extern "C" {
 IRAM_ATTR void __cyg_profile_func_enter(void *this_fn, void *call_site) __attribute__((no_instrument_function));
 IRAM_ATTR void __cyg_profile_func_exit(void *this_fn, void *call_site) __attribute__((no_instrument_function));
