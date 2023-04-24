@@ -87,6 +87,22 @@ IRAM_ATTR const void *xt_return_address(int lvl);
 IRAM_ATTR static uint8_t _idx(void *a);
 #endif
 
+
+// Copied from mmu_iram.h - We have a special need to read IRAM code. In a debug
+// build the orginal would have validated the address range. And, panic at the
+// attempt to access the IRAM code area. Orignal comments stripped.
+static inline __attribute__((always_inline))
+uint8_t _get_uint8(const void *p8) {
+  void *v32 = (void *)((uintptr_t)p8 & ~(uintptr_t)3u);
+  uint32_t val;
+  __builtin_memcpy(&val, v32, sizeof(uint32_t));
+  asm volatile ("" :"+r"(val)); // inject 32-bit dependency
+  uint32_t pos = ((uintptr_t)p8 & 3u) * 8u;
+  val >>= pos;
+  return (uint8_t)val;
+}
+
+
 // Stay on the road. Return 0 for not a valid code pointer,
 //   or how far backward we can scan.
 // Changes: Tightened up code range comparisons.
@@ -139,7 +155,7 @@ static uint8_t _idx(void *c) {
     static uint8_t data[4] __attribute__((aligned(4)));
 
     if (FLASH_BASE > (uintptr_t)c || (SPIRDY & CACHE_READ_EN_BIT)) {
-        return mmu_get_uint8(c);
+        return _get_uint8(c);
     } else if ((FLASH_BASE + 1024*1024) > (uintptr_t)c) {
         // We have to directly read from flash
         if (((uintptr_t)c & ~3) != addr) {
@@ -153,7 +169,8 @@ static uint8_t _idx(void *c) {
 
 #else
 static inline uint8_t _idx(void *a) __attribute__((always_inline));
-static inline uint8_t _idx(void *a) { return mmu_get_uint8(a); }
+static inline uint8_t _idx(void *a) { return _get_uint8(a); }
+// static inline uint8_t _idx(void *a) { return *(uint8_t*)(a); } // for debugging -Og makes it simple
 #endif
 
 static inline int idx(void *a, uint32_t b) __attribute__((always_inline));
@@ -184,6 +201,8 @@ static int find_addim_ax_a1(uint32_t pc, uint32_t off, int ax) {
     }
     return a0_off;
 }
+// #pragma GCC optimize("Og")  // This one breaks with the div 0 example
+
 
 // For a definitive return value, we look for a0 save.
 // The current GNU compiler appears to store at +12 for a size 16 stack;
@@ -198,7 +217,8 @@ static int find_addim_ax_a1(uint32_t pc, uint32_t off, int ax) {
 // when using profiler (-finstrument-functions) every function does call another
 // function forcing a0 to always be saved.
 //
-static int find_s32i_a0_a1(uint32_t pc, uint32_t off) {
+static
+int find_s32i_a0_a1(uint32_t pc, uint32_t off) {
     int a0_off = -1;  // Assume failed
 
     // For the xtensa instruction set, it looks like, bit 0x08 on the LSB is the
@@ -232,7 +252,8 @@ static int find_s32i_a0_a1(uint32_t pc, uint32_t off) {
     return a0_off;
 }
 
-static bool verify_path_ret_to_pc(uint32_t pc, uint32_t off) {
+static
+bool verify_path_ret_to_pc(uint32_t pc, uint32_t off) {
     uint8_t *p0 = (uint8_t *)(pc - off);
     for (;
          (uintptr_t)p0 < pc;
@@ -495,11 +516,14 @@ int xt_retaddr_callee_ex(const void * const i_pc, const void * const i_sp, const
 
     return 0;
 }
+#pragma GCC optimize("Os")
+
 int xt_retaddr_callee(const void * const i_pc, const void * const i_sp, const void * const i_lr, const void **o_pc, const void **o_sp)
 {
     const void *o_fn; // ignored
     return xt_retaddr_callee_ex(i_pc, i_sp, i_lr, o_pc, o_sp, &o_fn);
 }
+
 
 struct BACKTRACE_PC_SP xt_return_address_ex(int lvl)
 {

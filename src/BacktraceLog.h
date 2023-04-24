@@ -17,6 +17,18 @@
 #ifndef _BACKTRACELOG_H
 #define _BACKTRACELOG_H
 
+#include <user_interface.h>
+
+// Enable minimum logging at postmortem
+#if !defined(DEBUG_ESP_BACKTRACELOG_MAX) && \
+    !defined(DEBUG_ESP_BACKTRACELOG_USE_IRAM_BUFFER) && \
+    !defined(DEBUG_ESP_BACKTRACELOG_USE_RTC_BUFFER_OFFSET)
+    #if !defined(DEBUG_ESP_BACKTRACELOG_SHOW)
+    #define DEBUG_ESP_BACKTRACELOG_SHOW 1
+    #endif
+    #define DEBUG_ESP_BACKTRACELOG_MAX DEBUG_ESP_BACKTRACELOG_SHOW
+#endif
+
 #ifndef DEBUG_ESP_BACKTRACELOG_MAX
 #define DEBUG_ESP_BACKTRACELOG_MAX 0
 #endif

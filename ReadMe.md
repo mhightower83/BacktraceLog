@@ -1,4 +1,24 @@
 # Backtrace Log
+
+## Quick Start, for the TL;DR folks
+Add an include line to your main `Sketch.ino` file where it looks something like this.
+```cpp
+#include <Backtrace_Log.h>
+  ...
+void setup() {
+  ...
+}
+
+void loop() {
+  ...
+}
+```
+On the Arduino IDE, select `Tools->Debug Optimization: "Optimum"`.
+
+These steps will get you started with a Backtrace line at the end of the Postmortem report. When your ready for more control and features come back and read some more.
+
+## Description
+
 BacktraceLog condenses the large stack dump to a form more easily stored or carried forward to the next boot cycle for deferred retrieval. BacktraceLog can store in an IRAM or DRAM log buffer. The log buffer can optionally be backed up to User RTC memory and persist across deep sleep.
 
 While BacktraceLog can retain crash information across boot cycles, it has other build configurations. You can also print the backtrace at the time of the crash. You can choose to print non-crash call traces at any time and keep running without saving the information.
@@ -7,8 +27,7 @@ While BacktraceLog can retain crash information across boot cycles, it has other
 
 Because of compiler optimizations, the call list may have gaps. The same problem exists with the "ESP Exception Decoder" using a full stack dump. Some optimization changes like adding `-fno-optimize-sibling-calls` can improve the backtrace report. This one has the downside of increasing Stack usage.
 
-BacktraceLog works through a postmortem callback. It stores and optionally prints a backtrace. The backtrace process extracts data by scanning the stack and machine code, looking at each stack frame for size and a return addresses. When occurring in a leaf function, WDT faults are challenging. A leaf function can hide an infinite loop from this method. A leaf function free of the concern of register `a0` overwritten by a function call, does not need to store the return address on the Stack. Adding an empty Extended ASM line, `asm volatile("" ::: "a0", "memory");`, near the top of these functions, can persuade the compiler to store the return address on the Stack. Additionally in leaf functions that are considered `pure` or `constant` you may improved trace results by adding
-`-fno-ipa-pure-const` to your build options.
+BacktraceLog works through a postmortem callback. It stores and optionally prints a backtrace. The backtrace process extracts data by scanning the stack and machine code, looking at each stack frame for size and a return addresses. When occurring in a leaf function, WDT faults are challenging. A leaf function can hide an infinite loop from this method. A leaf function free of the concern of register `a0` overwritten by a function call, does not need to store the return address on the Stack. Adding an empty Extended ASM line, `asm volatile("" ::: "a0", "memory");`, near the top of these functions, can persuade the compiler to store the return address on the Stack. Additionally in leaf functions that are considered `pure` or `constant` you may improved trace results by adding `-fno-ipa-pure-const` to your build options.
 
 The BacktraceLog library can add up to about 3K bytes to the total sketch size. Of that, a minor 188 bytes is added to support the RTC memory backup. To temporarily disable the BacktraceLog library, set `-DDEBUG_ESP_BACKTRACELOG_MAX=0` in the build options. This library requires the use of global build options like that supported by a [`<sketch name>.ino.globals.h`](https://arduino-esp8266.readthedocs.io/en/latest/faq/a06-global-build-options.html?highlight=build.opt#how-to-specify-global-build-defines-and-options) file.
 
@@ -171,8 +190,9 @@ Helpful build options, you can add to your `<sketche name>.ino.globals.h` file. 
 To get a list of active optimizations used in a build try review: [this stackoverflow article for details](https://stackoverflow.com/a/52536637/13145420) - "Modern versions of GCC have the `-fverbose-asm` option that dumps the optimisation options enabled in a comment in the assembly file that you can get by compiling with `-S` or `-save-temps`"
 
 ## `-Og`
-If you have the IRAM and flash space, this optimization option may be very useful when debugging. Review details at [GCC Optimize options](https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html). However, I would also
-add `-fno-ipa-pure-const` to that selection.
+Update: This option is now accessable with Arduino IDE `Tools->Debug Optimization:` "Optimum".
+
+If you have the IRAM and flash space, this optimization option may be very useful when debugging. Review details at [GCC Optimize options](https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html). However, I would also add `-fno-ipa-pure-const` to that selection.
 
 ## `-fno-ipa-pure-const`
 From GCC Optimize options, `-fipa-pure-const` "Discover which functions are pure or constant. Enabled by default at -O1 and higher." Turning off this optimization revealed the path to some crashing functions. This was helpful when debugging a leaf function.
