@@ -473,6 +473,11 @@ function do_viewer_dialog() {
       LINE_NO=$( grep -nom1 "${FUNC_NAME}" $FILE_NAME )
       LINE_NO=${LINE_NO%%:*}
     fi
+    if [[ ! -f "$FILE_NAME" ]]; then
+      # Fixup: addr2line may have given a file and path to sources we don't have.
+      LINE_NO=0
+      FILE_NAME=""
+    fi
   fi
   PATTERN=""
   [[ -n "${FUNC_NAME}" ]] && PATTERN="-p${FUNC_NAME}"

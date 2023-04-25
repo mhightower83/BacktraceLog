@@ -5,6 +5,7 @@ Add an include line to your main `Sketch.ino` file where it looks something like
 ```cpp
 #include <Backtrace_Log.h>
   ...
+
 void setup() {
   ...
 }

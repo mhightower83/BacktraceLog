@@ -385,51 +385,106 @@ int xt_retaddr_callee_ex(const void * const i_pc, const void * const i_sp, const
             //
             if ((idx(pb, 0) & 0x0F) == 0x02 && (idx(pb, 1) & 0xF0) == 0xa0) {
                 int stk_size = ((idx(pb, 1) & 0x0F)<<8) + idx(pb, 2);
-                //? ETS_PRINTF("\nmaybe - movi: pb 0x%08X, stk_size: %d\n", (uint32_t)pb, stk_size);
+                stk_size |= (0 != (stk_size & BIT(11))) ? 0xFFFFF000 : 0;
 
-                if (0 == stk_size || stk_size >= 2048) {
-                    // Zero or negative keep looking
+                ETS_PRINTF("\nmaybe - movi: pb 0x%08X, stk_size: %d\n", (uint32_t)pb, stk_size);
+                // With negative stack_size look for an add instruction
+                // With a positive stack_size look for a sub instruction
+                if (-2048 > stk_size || stk_size >= 2048 || 0 == stk_size) {
                     continue;
                 }
-                //
-                // r0 11 c0   SUB a1, a1, r
-                //
+
                 bool found = false;
-                for (uint8_t *psub = &pb[3];
-                     psub < &pb[32];            // Expect a match within 32 bytes
-                     psub = (uint8_t*)((idx(psub, 0) & 0x80) ? ((uintptr_t)psub + 2) : ((uintptr_t)psub + 3))) {
-                    if ((idx(psub, 0) & 0x0F) == 0x00 &&
-                         idx(psub, 1) == 0x11 &&
-                         idx(psub, 2) == 0xc0 &&
-                        (idx(pb, 0) & 0xF0) == (idx(psub, 0) & 0xF0)) {
-                        found = true;
-                        break;
+                if (0 < stk_size) {
+                    //
+                    // r0 11 c0   SUB a1, a1, r
+                    //
+                    for (uint8_t *psub = &pb[3];
+                         psub < &pb[32];            // Expect a match within 32 bytes
+                         psub = (uint8_t*)((idx(psub, 0) & 0x80) ? ((uintptr_t)psub + 2) : ((uintptr_t)psub + 3))) {
+                        if ((idx(psub, 0) & 0x0F) == 0x00 &&
+                             idx(psub, 1) == 0x11 &&
+                             idx(psub, 2) == 0xc0 &&
+                            (idx(pb, 0) & 0xF0) == (idx(psub, 0) & 0xF0)) {
+                            found = true;
+                            break;
+                        }
                     }
-                }
-                if (!found) {
-                    //? ETS_PRINTF("\n!found sub\n");
-                    continue;
-                }
+                    if (!found) {
+                        //? ETS_PRINTF("\n!found sub\n");
+                        continue;
+                    }
+                    int a0_offset = find_s32i_a0_a1(pc, off);
+                    if (a0_offset < 0) {
+                        // pc = lr;
+                        //? ETS_PRINTF("\n!sub: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d\n", pc, sp, stk_size, a0_offset);
+                        continue;
+                    } else if (a0_offset >= stk_size) {
+                        //? ETS_PRINTF("\n!sub: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d\n", pc, sp, stk_size, a0_offset);
+                        continue;
+                    } else {
+                        // fn = pc - off;
+                        // pc = *(uint32_t *)(sp + a0_offset);
+                        uint32_t *sp_a0 = (uint32_t *)((uintptr_t)sp + (uintptr_t)a0_offset);
+                        ETS_PRINTF("\nsub: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d, %p(0x%08x)\n", pc, sp, stk_size, a0_offset, sp_a0, *sp_a0);
+                        fn = (pc - off) & ~3; // function entry points are aligned 4
+                        pc = *sp_a0;
+                    }
 
-                int a0_offset = find_s32i_a0_a1(pc, off);
-                if (a0_offset < 0) {
-                    // pc = lr;
-                    //? ETS_PRINTF("\n!sub: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d\n", pc, sp, stk_size, a0_offset);
-                    continue;
-                } else if (a0_offset >= stk_size) {
-                    //? ETS_PRINTF("\n!sub: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d\n", pc, sp, stk_size, a0_offset);
-                    continue;
+                    sp += stk_size;
                 } else {
-                    // fn = pc - off;
-                    // pc = *(uint32_t *)(sp + a0_offset);
-                    uint32_t *sp_a0 = (uint32_t *)((uintptr_t)sp + (uintptr_t)a0_offset);
-                    ETS_PRINTF("\nsub: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d, %p(0x%08x)\n", pc, sp, stk_size, a0_offset, sp_a0, *sp_a0);
-                    fn = (pc - off) & ~3; // function entry points are aligned 4
-                    pc = *sp_a0;
+                    //
+                    // 11 rA   ADD.n a1, a1, r
+                    //
+                    for (uint8_t *psub = &pb[3];
+                         psub < &pb[32];            // Expect a match within 32 bytes
+                         psub = (uint8_t*)((idx(psub, 0) & 0x80) ? ((uintptr_t)psub + 2) : ((uintptr_t)psub + 3))) {
+                        if ( idx(psub, 1) == 0x11 &&
+                            (idx(psub, 0) & 0x0F) == 0x0A &&
+                            (idx(pb, 0) & 0xF0) == (idx(psub, 0) & 0xF0)) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        // Repeat with 3 byte add - untested
+                        //
+                        // r0 11 80   add a1, a1, r
+                        //
+                        for (uint8_t *psub = &pb[3];
+                             psub < &pb[32];            // Expect a match within 32 bytes
+                             psub = (uint8_t*)((idx(psub, 0) & 0x80) ? ((uintptr_t)psub + 2) : ((uintptr_t)psub + 3))) {
+                            if ((idx(psub, 0) & 0x0F) == 0x00 &&
+                                 idx(psub, 1) == 0x11 &&
+                                 idx(psub, 2) == 0x80 &&
+                                (idx(pb, 0) & 0xF0) == (idx(psub, 0) & 0xF0)) {
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!found) {
+                        continue;
+                    }
+                    int a0_offset = find_s32i_a0_a1(pc, off);
+                    if (a0_offset < 0) {
+                        // pc = lr;
+                        //? ETS_PRINTF("\n!add: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d\n", pc, sp, stk_size, a0_offset);
+                        continue;
+                    } else if (a0_offset >= -stk_size) {
+                        //? ETS_PRINTF("\n!add: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d\n", pc, sp, stk_size, a0_offset);
+                        continue;
+                    } else {
+                        // fn = pc - off;
+                        // pc = *(uint32_t *)(sp + a0_offset);
+                        uint32_t *sp_a0 = (uint32_t *)((uintptr_t)sp + (uintptr_t)a0_offset);
+                        ETS_PRINTF("\nadd: pc:sp 0x%08X:0x%08X, stk_size: %d, a0_offset: %d, %p(0x%08x)\n", pc, sp, stk_size, a0_offset, sp_a0, *sp_a0);
+                        fn = (pc - off) & ~3; // function entry points are aligned 4
+                        pc = *sp_a0;
+                    }
+
+                    sp -= stk_size;
                 }
-
-                sp += stk_size;
-
                 break;
             } else
             // Most fail to find, land here. The question is how aggressively
