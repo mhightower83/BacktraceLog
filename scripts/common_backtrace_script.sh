@@ -699,7 +699,8 @@ function do_unasm2() { # WIP
   esp_toolchain_objdump=$( get_hardware_tool_path "objdump" "${@: -1}" )
   # echo ${esp_toolchain_objdump} -d ${ADDR} $*
   # read -n1 anyway
-  ${esp_toolchain_objdump} -xsD ${ADDR} $* | less -i ${PATTERN}
+  # ${esp_toolchain_objdump} -xsD ${ADDR} $* | less -i ${PATTERN}
+  ${esp_toolchain_objdump} -xsD "${ADDR}" --dwarf=decodedline $* | less -i ${PATTERN}
 }
 
 function do_unasm() {

@@ -316,6 +316,20 @@ int xt_retaddr_callee_ex(const void * const i_pc, const void * const i_sp, const
             // When we need to look behind an Exception frame, those start point
             // values are passed in.
             uint8_t *pb = (uint8_t *)((uintptr_t)pc - off);
+            /*
+              Exception "C" wrapper handler does not create a stack frame, it is
+              jump to after the stack frame is setup. Thus, backward scanning
+              will fail or worse give a false result. As a backstop check for
+              _xtos_c_wrapper_handler.
+            */
+            if ((uintptr_t)pb == (uintptr_t)_xtos_c_wrapper_handler) {
+                // Leave stepping over the Exception frame to the caller.
+                // pc = ((uint32_t*)sp)[0];
+                // sp += 256;
+                pc = 0;
+                fn = (uint32_t)pb;
+                break;
+            }
             //
             // 12 c1 xx   ADDI a1, a1, -128..127
             //
@@ -387,10 +401,10 @@ int xt_retaddr_callee_ex(const void * const i_pc, const void * const i_sp, const
                 int stk_size = ((idx(pb, 1) & 0x0F)<<8) + idx(pb, 2);
                 stk_size |= (0 != (stk_size & BIT(11))) ? 0xFFFFF000 : 0;
 
-                ETS_PRINTF("\nmaybe - movi: pb 0x%08X, stk_size: %d\n", (uint32_t)pb, stk_size);
+                //+ ETS_PRINTF("\nmaybe - movi: pb 0x%08X, stk_size: %d\n", (uint32_t)pb, stk_size);
                 // With negative stack_size look for an add instruction
                 // With a positive stack_size look for a sub instruction
-                if (-2048 > stk_size || stk_size >= 2048 || 0 == stk_size) {
+                if (-2048 > stk_size || stk_size >= 2048 || 0 == stk_size || 0 != (3 & stk_size)) {
                     continue;
                 }
 

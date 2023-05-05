@@ -12,7 +12,7 @@
 */
 void logCallTrace(void) {
     int repeat;
-    void *pc, *sp;
+    const void *pc, *sp;
     __asm__ __volatile__(
       "mov  %[sp], a1\n\t"
       "movi %[pc], .\n\t"

@@ -335,6 +335,7 @@ void backtraceLog_clear(void) {
 }
 
 void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t stack_end) {
+    (void)stack;
     (void)stack_end;
     const void *i_pc, *i_sp, *lr, *pc, *sp;
     [[maybe_unused]] const void *fn;
@@ -348,18 +349,11 @@ void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t 
     // Assume no exception frame to work with. As with software abort/panic/...
     struct __exception_frame * frame = NULL;
     if (rst_info->reason < 100) {
-        // There is an exceptiom frame - recover pointer
-        frame = (struct __exception_frame * )(stack - 256u);
-    }
-    if (frame) {
-        // pc = (void*)rst_info->epc1;
-        // lr = (void*)frame->a0;
-        // sp = (void*)stack; // or ((uintptr_t)frame + 256);
-
-        // Postmortem may have changed and the offsets for adjusting before the
-        // exception frame could be stale.
-        // Use this alternative method, backward search for the start of the
-        // exception frame from here.
+        // Backtrace up to the Exception Frame
+        //
+        // Postmortem may change and the offsets for adjusting before the
+        // exception frame could become stale. Backward search for the start of
+        // the exception frame from here.
         const struct BACKTRACE_PC_SP pc_sp = xt_return_address_ex(0);
         pc = pc_sp.pc;
         sp = pc_sp.sp;
@@ -371,6 +365,7 @@ void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t 
             i_sp = sp;
             ETS_PRINTF2(" %p:%p", i_pc, i_sp);
             repeat = xt_retaddr_callee_ex(i_pc, i_sp, NULL, &pc, &sp, &fn);
+            ETS_PRINTF2("(%d)", (int)i_sp - (int)sp);
             if (fn) { ETS_PRINTF2(":<%p>", fn); }
         } while (repeat > 0);
         ETS_PRINTF2("\n");
@@ -393,8 +388,15 @@ void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t 
             pBT->log.rst_info.exccause = exccause;
             pBT->log.rst_info.epc1 = epc1;
         }
-        pc = (void*)epc1;
         sp = (void*)((uintptr_t)frame + 256); // Step back before the exception occured
+        pc = (void*)epc1;
+        if (!xt_pc_is_valid((void*)epc1) && xt_pc_is_valid(lr)) {
+            // When epc is not a valid address (maybe the cause of the
+            // exception), a0 is more likely the caller's address and a new
+            // stack frame has not started. Begin backtrace with a0.
+            pc = lr;
+            lr = NULL;
+        }
     } else {
         struct BACKTRACE_PC_SP pc_sp = xt_return_address_ex(1);
         pc = pc_sp.pc;
@@ -407,11 +409,15 @@ void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t 
     ETS_PRINTF2("\n\nBacktrace Crash Reporter - User space:\n ");
     SHOW_PRINTF("\nBacktrace:");
     do {
+        i_pc = pc;
+        i_sp = sp;
         ETS_PRINTF2(" %p:%p", pc, sp);
         SHOW_PRINTF(" %p:%p", pc, sp);
         backtraceLog_write(pc);
-        repeat = xt_retaddr_callee_ex(pc, sp, lr, &pc, &sp, &fn);
+        repeat = xt_retaddr_callee_ex(i_pc, i_sp, lr, &pc, &sp, &fn);
+        ETS_PRINTF2("(%d)", (int)i_sp - (int)sp);
         if (fn) { ETS_PRINTF2(":<%p>", fn); }
+        SHOW_PRINTF("(%d)", (int)i_sp - (int)sp);
         if (fn) { SHOW_PRINTF(":<%p>", fn); }  // estimated start of the function
         lr = NULL;
     } while(repeat);
@@ -425,11 +431,15 @@ void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t 
         sp = (void*)((uintptr_t)g_pcont->SP_SUSPEND + 24u);   // a1
         pc = *(void**)((uintptr_t)g_pcont->SP_SUSPEND + 16u); // a0
         do {
+            i_pc = pc;
+            i_sp = sp;
             ETS_PRINTF2(" %p:%p", pc, sp);
             SHOW_PRINTF(" %p:%p", pc, sp);
             backtraceLog_write(pc);
-            repeat = xt_retaddr_callee_ex(pc, sp, NULL, &pc, &sp, &fn);
+            repeat = xt_retaddr_callee_ex(i_pc, i_sp, NULL, &pc, &sp, &fn);
+            ETS_PRINTF2("(%d)", (int)i_sp - (int)sp);
             if (fn) { ETS_PRINTF2(":<%p>", fn); }
+            SHOW_PRINTF("(%d)", (int)i_sp - (int)sp);
             if (fn) { SHOW_PRINTF(":<%p>", fn); }
         } while(repeat);
     }
