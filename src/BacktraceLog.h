@@ -65,6 +65,13 @@
 #endif
 extern "C" void SHARE_PREINIT__DEBUG_ESP_BACKTRACELOG(void);
 
+
+#ifndef SHARE_CUSTOM_CRASH_CB__DEBUG_ESP_BACKTRACELOG
+#define SHARE_CUSTOM_CRASH_CB__DEBUG_ESP_BACKTRACELOG custom_crash_callback
+#endif
+extern "C" void SHARE_CUSTOM_CRASH_CB__DEBUG_ESP_BACKTRACELOG(struct rst_info * rst_info, uint32_t stack, uint32_t stack_end);
+
+
 struct BACKTRACELOG_MEM_INFO {
     void *addr;
     size_t sz;
@@ -138,6 +145,9 @@ extern "C" void backtraceLog_write(const void * const pc);
 #ifndef DEBUG_ESP_BACKTRACELOG_LEAF_FUNCTION
 #define DEBUG_ESP_BACKTRACELOG_LEAF_FUNCTION(...)
 #endif
+
+#undef SHARE_CUSTOM_CRASH_CB__DEBUG_ESP_BACKTRACELOG
+#define SHARE_CUSTOM_CRASH_CB__DEBUG_ESP_BACKTRACELOG(...)
 
 class BacktraceLog {
 public:

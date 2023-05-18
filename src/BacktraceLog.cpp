@@ -241,7 +241,7 @@ int BacktraceLog::available() {
 }
 
 extern "C" {
-void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t stack_end);
+// void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t stack_end);
 int umm_info_safe_printf_P(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 #define ETS_PRINTF(fmt, ...) umm_info_safe_printf_P(PSTR(fmt), ##__VA_ARGS__)
 
@@ -334,9 +334,17 @@ void backtraceLog_clear(void) {
     }
 }
 
-void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t stack_end) {
+/*
+  The Boot ROM `__divsi3` function handles a divide by 0 by branching to the
+  `ill` instruction at address 0x4000dce5. By looking for this address in epc1
+  we can separate the divide by zero event from other `ill` instruction events.
+*/
+constexpr uint32_t divide_by_0_exception = 0x4000dce5u;
+
+void SHARE_CUSTOM_CRASH_CB__DEBUG_ESP_BACKTRACELOG(struct rst_info * rst_info, uint32_t stack, uint32_t stack_end) {
     (void)stack;
     (void)stack_end;
+
     const void *i_pc, *i_sp, *lr, *pc, *sp;
     [[maybe_unused]] const void *fn;
     int repeat;
@@ -376,21 +384,21 @@ void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t 
         frame = (struct __exception_frame * )sp;
         uint32_t epc1 = rst_info->epc1;
         uint32_t exccause = rst_info->exccause;
-        lr = (void*)frame->a0;
 
-        bool div_zero = (exccause == 0) && (epc1 == 0x4000dce5u);
-        if (div_zero) {
-            exccause = 6;
+        pc = (void*)epc1;
+        lr = (void*)frame->a0;
+        sp = (void*)((uintptr_t)frame + 256); // Step back before the exception occured
+        if (rst_info->epc2) {
+            pc = (void*)rst_info->epc2;
+        } else if (0 == exccause && divide_by_0_exception == epc1) {
             // In place of the detached 'ILL' instruction., redirect attention
             // back to the code that called the ROM divide function.
-            __asm__ __volatile__("rsr.excsave1 %0\n\t" : "=r"(epc1) :: "memory");
+            pBT->log.rst_info.exccause = 6 /* EXCCAUSE_DIVIDE_BY_ZERO */;
+            pBT->log.rst_info.epc1 = (uint32_t)lr;
+            pc = lr;
             lr = NULL;
-            pBT->log.rst_info.exccause = exccause;
-            pBT->log.rst_info.epc1 = epc1;
         }
-        sp = (void*)((uintptr_t)frame + 256); // Step back before the exception occured
-        pc = (void*)epc1;
-        if (!xt_pc_is_valid((void*)epc1) && xt_pc_is_valid(lr)) {
+        if (!xt_pc_is_valid((void*)pc) && xt_pc_is_valid(lr)) {
             // When epc is not a valid address (maybe the cause of the
             // exception), a0 is more likely the caller's address and a new
             // stack frame has not started. Begin backtrace with a0.
@@ -398,7 +406,7 @@ void custom_crash_callback(struct rst_info * rst_info, uint32_t stack, uint32_t 
             lr = NULL;
         }
     } else {
-        struct BACKTRACE_PC_SP pc_sp = xt_return_address_ex(1);
+        struct BACKTRACE_PC_SP pc_sp = xt_return_address_ex(3);
         pc = pc_sp.pc;
         sp = pc_sp.sp;
         lr = NULL;
