@@ -46,6 +46,7 @@ void setup(void) {
   Serial.begin(115200);
   delay(200);    // This delay helps when using the 'Modified Serial monitor' otherwise it is not needed.
   Serial.printf_P(PSTR("\r\n\r\nExample TraceCall - demo function call traceback ...\r\n\r\n"));
+  backtraceLog.report(Serial);  // Before WiFi connection
   Serial.println();
 
 #ifdef USE_WIFI
@@ -79,8 +80,7 @@ void setup(void) {
 #if defined(USE_WIFI) && defined(USE_TELNET)
   telnetAgentSetup();
 #endif
-
-  backtraceLog.report(Serial); // They need to see something
+  backtraceLog.report(Serial);  // After WiFi connection
 }
 
 void loop(void) {

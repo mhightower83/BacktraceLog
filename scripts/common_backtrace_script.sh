@@ -67,6 +67,10 @@ EOF
 
   $namesh [alternate search path for .elf files]
 
+  or
+
+  $namesh [alternate search path for .elf files] [backtrace addresses1] ...
+
   Presents a list of builds to select from. After selection, prompts
   for list of backtrace addresses
 
@@ -934,6 +938,9 @@ if [[ "--help" == "${1}" ]]; then
   print_help "${myname}"
   exit 255
 elif make_main_menu "${1}"; then
+  if [[ -n "${1}" ]]; then
+    shift
+  fi
   while :; do
     do_main_dialog "${myname}" "$*"
     rc=$?

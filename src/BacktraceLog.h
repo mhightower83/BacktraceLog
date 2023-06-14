@@ -107,6 +107,7 @@ struct BACKTRACE_LOG {
     uint32_t max;
     uint32_t bootCounter;
     uint32_t crashCount;
+    uint32_t binCrc;
     struct rst_info rst_info;
     uint32_t count;
     const void *pc[DEBUG_ESP_BACKTRACELOG_MAX];

@@ -59,6 +59,11 @@
 #include <cont.h>
 #include "BacktraceLog.h"
 
+// Copied from Esp.cpp
+// These are defined in the linker script, and filled in by the elf2bin.py util
+extern "C" uint32_t __crc_len;
+extern "C" uint32_t __crc_val;
+
 #pragma GCC optimize("Os")
 
 #ifndef ARDUINO_ESP8266_VERSION_DEC
@@ -118,28 +123,6 @@ constexpr size_t baseSize32BacktraceLog = offsetof(union BacktraceLogUnion, log.
 #define IRAM_RESERVE_SZ ((sizeof(union BacktraceLogUnion) + 7) & ~7)
 
 extern struct rst_info resetInfo;
-
-/*
-  Works with array of uint16_t values, 2 byte increments.
-  Minimum length 4 bytes.
-  len16 should be number of short values, sizeof()/2
-*/
-static uint16_t xorChecksum16(void *p, size_t len16, uint16 xsum16 = 0)
-{
-    size_t len32 = len16 / 2;
-    uint32_t *x = (uint32_t *)p;
-    uint32 xsum = xsum16;
-    size_t i;
-    for (i = 0; i < len32; i++) {
-        xsum ^= x[i];
-    }
-
-    xsum = ((xsum >> 16) ^ (uint16_t)xsum);
-    if ((len16 & 1)) {
-        xsum ^= *((uint16_t *)&x[i]);
-    }
-    return (uint16_t)xsum;
-}
 
 /*
   Define a function to determine if IRAM stored data is valid. The criteria used
@@ -210,6 +193,9 @@ void BacktraceLog::report(Print& out) {
         out.printf_P(PSTR("  Crash count: %u\r\n"), pBT->log.crashCount);
     }
     if (pBT->log.count) {
+        if (pBT->log.binCrc != __crc_val) {
+          out.printf_P(PSTR("  Current '.bin' CRC, 0x%08X, does not match Backtrace's, 0x%08X\r\n"), __crc_val, pBT->log.binCrc);
+        }
         out.printf_P(PSTR("  Reset Reason: %u\r\n"), pBT->log.rst_info.reason);
         if (100 > pBT->log.rst_info.reason && REASON_WDT_RST != pBT->log.rst_info.reason) {
             out.printf_P(PSTR("  Exception (%d):\r\n  epc1=0x%08x epc2=0x%08x epc3=0x%08x excvaddr=0x%08x depc=0x%08x\r\n"),
@@ -256,6 +242,41 @@ int umm_info_safe_printf_P(const char *fmt, ...) __attribute__((format(printf, 1
 #define SHOW_PRINTF(fmt, ...)
 #endif
 
+#if 0
+static uint32_t do_checksum(union BacktraceLogUnion *p) {
+    uint32_t chksum = 0x80000000u;
+    if (p) {
+        chksum = crc32(&p->log.max,
+            offsetof(union BacktraceLogUnion, log.pc)
+            - offsetof(union BacktraceLogUnion, log.max)
+            + DEBUG_ESP_BACKTRACELOG_MAX * 4);
+    }
+    return chksum;
+}
+
+#else
+/*
+  Works with array of uint16_t values, 2 byte increments.
+  Minimum length 4 bytes.
+  len16 should be number of short values, sizeof()/2
+*/
+static uint16_t xorChecksum16(void *p, size_t len16, uint16 xsum16 = 0)
+{
+    size_t len32 = len16 / 2;
+    uint32_t *x = (uint32_t *)p;
+    uint32 xsum = xsum16;
+    size_t i;
+    for (i = 0; i < len32; i++) {
+        xsum ^= x[i];
+    }
+
+    xsum = ((xsum >> 16) ^ (uint16_t)xsum);
+    if ((len16 & 1)) {
+        xsum ^= *((uint16_t *)&x[i]);
+    }
+    return (uint16_t)xsum;
+}
+
 static uint32_t do_checksum(union BacktraceLogUnion *p) {
     uint32_t chksum = 0x80000000u;
     if (p) {
@@ -266,6 +287,7 @@ static uint32_t do_checksum(union BacktraceLogUnion *p) {
     }
     return chksum;
 }
+#endif
 
 void backtraceLog_report(int (*ets_printf_P)(const char *fmt, ...)) {
     if (NULL == ets_printf_P) {
@@ -296,6 +318,9 @@ void backtraceLog_report(int (*ets_printf_P)(const char *fmt, ...)) {
         ets_printf_P(PSTR("  Crash count: %u\r\n"), pBT->log.crashCount);
     }
     if (pBT->log.count) {
+        if (pBT->log.binCrc != __crc_val) {
+          ets_printf_P(PSTR("  Current '.bin' CRC, 0x%08X, does not match Backtrace's, 0x%08X\r\n"), __crc_val, pBT->log.binCrc);
+        }
         ets_printf_P(PSTR("  Reset Reason: %u\r\n"), pBT->log.rst_info.reason);
         if (pBT->log.rst_info.reason < 100) {
             ets_printf_P(PSTR("  Exception (%d):\r\n  epc1=0x%08x epc2=0x%08x epc3=0x%08x excvaddr=0x%08x depc=0x%08x\r\n"),
@@ -639,6 +664,9 @@ void backtraceLog_append(void) {
 
 void backtraceLog_fin(void) {
     if (NULL == pBT) return;
+
+    // Use later to confirm .bin matches up with that of the crash data.
+    pBT->log.binCrc = __crc_val;
 
     pBT->log.chksum = do_checksum(pBT);
 #if DEBUG_ESP_BACKTRACELOG_USE_RTC_BUFFER_OFFSET
