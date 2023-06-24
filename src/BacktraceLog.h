@@ -60,11 +60,19 @@
  * with a replacment name for BacktraceLog's preinit() and call it from your
  * preinit();
  */
+#if defined(MMU_IRAM_HEAP)
+// SHARE_PREINIT__DEBUG_ESP_BACKTRACELOG is not used with MMU_IRAM_HEAP.
+// Initialization is handled through 'user_init()'' by a call to 'umm_init_iram()'
+// Avoid edits when changing build options with this null function to satisfy references
+#undef SHARE_PREINIT__DEBUG_ESP_BACKTRACELOG
+inline void SHARE_PREINIT__DEBUG_ESP_BACKTRACELOG(void) {}
+
+#else
 #ifndef SHARE_PREINIT__DEBUG_ESP_BACKTRACELOG
 #define SHARE_PREINIT__DEBUG_ESP_BACKTRACELOG preinit
 #endif
 extern "C" void SHARE_PREINIT__DEBUG_ESP_BACKTRACELOG(void);
-
+#endif
 
 #ifndef SHARE_CUSTOM_CRASH_CB__DEBUG_ESP_BACKTRACELOG
 #define SHARE_CUSTOM_CRASH_CB__DEBUG_ESP_BACKTRACELOG custom_crash_callback

@@ -11,6 +11,10 @@ WiFiServer server(telnetPort);
 WiFiClient serverClients[MAX_SRV_CLIENTS];
 StreamString telnetOut;
 
+inline void cmdLoop(Print& out, int hotKey) {
+  processKey(out, hotKey);
+}
+
 void telnetAgentSetup(void) {
   //start server
   server.begin();

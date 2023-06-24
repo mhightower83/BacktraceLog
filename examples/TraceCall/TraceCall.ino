@@ -22,12 +22,12 @@
 #include <BacktraceLog.h>
 BacktraceLog backtraceLog;
 
+#ifdef USE_WIFI
 // Make sure handler's never fall out of scope
 WiFiEventHandler handler1;
 WiFiEventHandler handler2;
 WiFiEventHandler handler3;
 
-#ifdef USE_WIFI
 #ifndef STASSID
 #pragma message("Using default SSID: your-ssid, this is probably not what you want.")
 #define STASSID "your-ssid"
@@ -76,11 +76,11 @@ void setup(void) {
   Serial.println(WiFi.localIP());
   Serial.println();
   Serial.println();
+  backtraceLog.report(Serial);  // After WiFi connection
 #endif
 #if defined(USE_WIFI) && defined(USE_TELNET)
   telnetAgentSetup();
 #endif
-  backtraceLog.report(Serial);  // After WiFi connection
 }
 
 void loop(void) {
@@ -93,11 +93,6 @@ void loop(void) {
   handleTelnetAgent();
 #endif
 }
-
-void cmdLoop(Print& out, int hotKey) {
-  processKey(out, hotKey);
-}
-
 
 /////////////////////////////////////////////////////////////
 // Crash test
