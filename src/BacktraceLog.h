@@ -60,7 +60,7 @@
  * with a replacment name for BacktraceLog's preinit() and call it from your
  * preinit();
  */
-#if defined(MMU_IRAM_HEAP)
+#if defined(MMU_IRAM_HEAP) && DEBUG_ESP_BACKTRACELOG_USE_IRAM_BUFFER
 // SHARE_PREINIT__DEBUG_ESP_BACKTRACELOG is not used with MMU_IRAM_HEAP.
 // Initialization is handled through 'user_init()'' by a call to 'umm_init_iram()'
 // Avoid edits when changing build options with this null function to satisfy references
