@@ -424,7 +424,12 @@ function do_viewer_dialog() {
   entry=$(sed -n "${menu_viewer_idx}p" $arduino_elfs_found)
 
   echo -e "\nYou selected:\n  '$entry'\n"
+  # you are parsing something that looks like this:
+  # 0x401002ef: pinSpecial(unsigned char, unsigned char) at /home/WP_HOLD_Test.cpp:67 (discriminator 24)
+  # delete before number
   LINE_NO=${entry##*:}
+  # delete after number
+  LINE_NO=${LINE_NO%% *}
   ZXADDR=${entry%%:*}
   ADDR=${ZXADDR#0x}
   if [[ "0x" == "${ZXADDR:0:2}" ]]; then
