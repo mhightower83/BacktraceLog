@@ -28,7 +28,18 @@ While BacktraceLog can retain crash information across boot cycles, it has other
 
 Because of compiler optimizations, the call list may have gaps. The same problem exists with the "ESP Exception Decoder" using a full stack dump. Some optimization changes like adding `-fno-optimize-sibling-calls` can improve the backtrace report. This one has the downside of increasing Stack usage.
 
-BacktraceLog works through a postmortem callback. It stores and optionally prints a backtrace. The backtrace process extracts data by scanning the stack and machine code, looking at each stack frame for size and a return addresses. When occurring in a leaf function, WDT faults are challenging. A leaf function can hide an infinite loop from this method. A leaf function free of the concern of register `a0` overwritten by a function call, does not need to store the return address on the Stack. Adding an empty Extended ASM line, `asm volatile("" ::: "a0", "memory");`, near the top of these functions, can persuade the compiler to store the return address on the Stack. Additionally in leaf functions that are considered `pure` or `const` you may improved trace results by adding `-fno-ipa-pure-const` to your build options. [GCC FAQ `pure`/`const`](http://www.faqs.org/docs/learnc/x1019.html) also [LWN.net: Pure and Constant Functions](https://lwn.net/Articles/285332/)
+BacktraceLog works through a postmortem callback. It stores and optionally
+prints a backtrace. The backtrace process extracts data by scanning the stack
+and machine code, looking at each stack frame for size and a return addresses. A
+Software WDT crash in a leaf function can be very challenging. A leaf function
+can hide an infinite loop from this method. In a leaf function, register `a0`,
+which holds the caller's address, is not saved on the program stack. Thus, at
+crash time, there is no evidence of the caller. Adding an empty Extended ASM
+line, `asm volatile("" ::: "a0", "memory");`, near the top of these functions,
+can persuade the compiler to store the return address on the Stack. Additionally
+in leaf functions that are considered `pure` or `const` you may improved trace
+results by adding `-fno-ipa-pure-const` to your build options.
+[GCC FAQ `pure`/`const`](http://www.faqs.org/docs/learnc/x1019.html) also [LWN.net: Pure and Constant Functions](https://lwn.net/Articles/285332/)
 
 The BacktraceLog library can add up to about 3K bytes to the total sketch size. Of that, a minor 188 bytes is added to support the RTC memory backup. To temporarily disable the BacktraceLog library, set `-DDEBUG_ESP_BACKTRACELOG_MAX=0` in the build options. This library requires the use of global build options like that supported by a [`<sketch name>.ino.globals.h`](https://arduino-esp8266.readthedocs.io/en/latest/faq/a06-global-build-options.html?highlight=build.opt#how-to-specify-global-build-defines-and-options) file.
 
