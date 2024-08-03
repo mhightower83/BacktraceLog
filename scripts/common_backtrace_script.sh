@@ -426,6 +426,8 @@ function do_viewer_dialog() {
   echo -e "\nYou selected:\n  '$entry'\n"
   # you are parsing something that looks like this:
   # 0x401002ef: pinSpecial(unsigned char, unsigned char) at /home/WP_HOLD_Test.cpp:67 (discriminator 24)
+  # 0x4020397d: operator new[](unsigned int) at /home/.../esp8266com/esp8266/cores/esp8266/abi.cpp:165 *** new
+  #
   # delete before number
   LINE_NO=${entry##*:}
   # delete after number
@@ -488,8 +490,15 @@ function do_viewer_dialog() {
       FILE_NAME=""
     fi
   fi
+
   PATTERN=""
-  [[ -n "${FUNC_NAME}" ]] && PATTERN="-p${FUNC_NAME}"
+  if [[ -n "${FUNC_NAME}" ]]; then
+     PATTERN="-p${FUNC_NAME}"
+     # problematic search pattern 'operator new[]'
+     PATTERN="${PATTERN//[/\\[}"
+     PATTERN="${PATTERN//]/\\]}"
+     PATTERN="${PATTERN// /.}"
+  fi
 
   # if [[ $LINE_NO != ?(-)+([0-9]) ]]; then
   #   LINE_NO=0
